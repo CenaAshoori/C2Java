@@ -1,0 +1,2 @@
+input\c-code-sample\test\netdata\c3636a18\C\curr\src\procfile.c
+input\c-code-sample\test\netdata\c3636a18\C\prev\src\procfile.c

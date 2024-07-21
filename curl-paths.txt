@@ -1,0 +1,2 @@
+input\c-code-sample\test\curl\e04417d9\C\curr\lib\ftp.c
+input\c-code-sample\test\curl\e04417d9\C\prev\lib\ftp.c

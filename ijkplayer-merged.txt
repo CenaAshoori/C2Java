@@ -1,0 +1,32 @@
+
+
+
+
+#ifndef J4A__tv_danmaku_ijk_media_player_misc_IIjkIOHttp__H
+#define J4A__tv_danmaku_ijk_media_player_misc_IIjkIOHttp__H
+
+#include "j4a/j4a_base.h"
+
+jint J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__open(JNIEnv *env, jobject thiz);
+jint J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__open__catchAll(JNIEnv *env, jobject thiz);
+jint J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__read(JNIEnv *env, jobject thiz, jbyteArray buffer, jint size);
+jint J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__read__catchAll(JNIEnv *env, jobject thiz, jbyteArray buffer, jint size);
+jlong J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__seek(JNIEnv *env, jobject thiz, jlong offset, jint whence);
+jlong J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__seek__catchAll(JNIEnv *env, jobject thiz, jlong offset, jint whence);
+jint J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__close(JNIEnv *env, jobject thiz);
+jint J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__close__catchAll(JNIEnv *env, jobject thiz);
+int J4A_loadClass__J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp(JNIEnv *env);
+
+#define J4A_HAVE_SIMPLE__J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp
+
+#define J4AC_IIjkIOHttp__open J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__open
+#define J4AC_IIjkIOHttp__open__catchAll J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__open__catchAll
+#define J4AC_IIjkIOHttp__read J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__read
+#define J4AC_IIjkIOHttp__read__catchAll J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__read__catchAll
+#define J4AC_IIjkIOHttp__seek J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__seek
+#define J4AC_IIjkIOHttp__seek__catchAll J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__seek__catchAll
+#define J4AC_IIjkIOHttp__close J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__close
+#define J4AC_IIjkIOHttp__close__catchAll J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp__close__catchAll
+#define J4A_loadClass__J4AC_IIjkIOHttp J4A_loadClass__J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp
+
+#endif

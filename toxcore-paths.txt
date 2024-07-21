@@ -1,0 +1,13 @@
+input\c-code-sample\test\toxcore\0207fcdf\C\curr\toxcore\Messenger.c
+input\c-code-sample\test\toxcore\0207fcdf\C\prev\toxcore\Messenger.c
+input\c-code-sample\test\toxcore\22b1ebb4\C\curr\toxcore\DHT.c
+input\c-code-sample\test\toxcore\22b1ebb4\C\prev\toxcore\DHT.c
+input\c-code-sample\test\toxcore\2465f486\C\curr\toxav\codec.c
+input\c-code-sample\test\toxcore\2465f486\C\prev\toxav\codec.c
+input\c-code-sample\test\toxcore\4bc2413c\C\prev\toxav\toxav_old.h
+input\c-code-sample\test\toxcore\8286c2c2\C\curr\toxcore\tox.c
+input\c-code-sample\test\toxcore\8286c2c2\C\prev\toxcore\tox.c
+input\c-code-sample\test\toxcore\d7113626\C\curr\auto_tests\tox_test.c
+input\c-code-sample\test\toxcore\d7113626\C\prev\auto_tests\tox_test.c
+input\c-code-sample\test\toxcore\d83efd35\C\curr\testing\irc_syncbot.c
+input\c-code-sample\test\toxcore\d83efd35\C\prev\testing\irc_syncbot.c
