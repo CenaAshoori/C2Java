@@ -1,2 +1,2 @@
-input\c-code-sample\test\nuklear\bd30c124\C\curr\nuklear.h
-input\c-code-sample\test\nuklear\bd30c124\C\prev\nuklear.h
+c_projects/nuklear/bd30c124/C/curr/nuklear.h
+c_projects/nuklear/bd30c124/C/prev/nuklear.h

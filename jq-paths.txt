@@ -1,8 +1,8 @@
-input\c-code-sample\test\jq\0d414471\C\curr\main.c
-input\c-code-sample\test\jq\0d414471\C\prev\main.c
-input\c-code-sample\test\jq\3a8c8f47\C\curr\src\compile.c
-input\c-code-sample\test\jq\3a8c8f47\C\prev\src\compile.c
-input\c-code-sample\test\jq\6366cfd7\C\curr\libm.h
-input\c-code-sample\test\jq\6366cfd7\C\prev\libm.h
-input\c-code-sample\test\jq\ae7f8d6a\C\curr\linker.c
-input\c-code-sample\test\jq\ae7f8d6a\C\prev\linker.c
+c_projects/jq/0d414471/C/curr/main.c
+c_projects/jq/0d414471/C/prev/main.c
+c_projects/jq/3a8c8f47/C/curr/src/compile.c
+c_projects/jq/3a8c8f47/C/prev/src/compile.c
+c_projects/jq/6366cfd7/C/curr/libm.h
+c_projects/jq/6366cfd7/C/prev/libm.h
+c_projects/jq/ae7f8d6a/C/curr/linker.c
+c_projects/jq/ae7f8d6a/C/prev/linker.c

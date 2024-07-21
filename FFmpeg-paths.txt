@@ -1,2 +1,2 @@
-input\c-code-sample\test\FFmpeg\f7221d8e\C\curr\libavformat\mov.c
-input\c-code-sample\test\FFmpeg\f7221d8e\C\prev\libavformat\mov.c
+c_projects/FFmpeg/f7221d8e/C/curr/libavformat/mov.c
+c_projects/FFmpeg/f7221d8e/C/prev/libavformat/mov.c

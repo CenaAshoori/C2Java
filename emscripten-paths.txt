@@ -1,2 +1,2 @@
-input\c-code-sample\test\emscripten\2a57fd9b\C\curr\system\lib\pthread\library_pthread.c
-input\c-code-sample\test\emscripten\2a57fd9b\C\prev\system\lib\pthread\library_pthread.c
+c_projects/emscripten/2a57fd9b/C/curr/system/lib/pthread/library_pthread.c
+c_projects/emscripten/2a57fd9b/C/prev/system/lib/pthread/library_pthread.c

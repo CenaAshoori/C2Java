@@ -1,5 +1,5 @@
-input\c-code-sample\test\tmux\aad4e4dd\C\prev\window-choose.c
-input\c-code-sample\test\tmux\c48d09ec\C\curr\environ.c
-input\c-code-sample\test\tmux\c48d09ec\C\prev\environ.c
-input\c-code-sample\test\tmux\f56f09ea\C\curr\mode-tree.c
-input\c-code-sample\test\tmux\f56f09ea\C\prev\mode-tree.c
+c_projects/tmux/aad4e4dd/C/prev/window-choose.c
+c_projects/tmux/c48d09ec/C/curr/environ.c
+c_projects/tmux/c48d09ec/C/prev/environ.c
+c_projects/tmux/f56f09ea/C/curr/mode-tree.c
+c_projects/tmux/f56f09ea/C/prev/mode-tree.c

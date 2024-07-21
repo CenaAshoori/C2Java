@@ -1,4 +1,4 @@
-input\c-code-sample\test\obs-studio\8a59d68e\C\curr\libobs\obs-properties.c
-input\c-code-sample\test\obs-studio\8a59d68e\C\prev\libobs\obs-properties.c
-input\c-code-sample\test\obs-studio\daf5a4b9\C\curr\libobs\obs-internal.h
-input\c-code-sample\test\obs-studio\daf5a4b9\C\prev\libobs\obs-internal.h
+c_projects/obs-studio/8a59d68e/C/curr/libobs/obs-properties.c
+c_projects/obs-studio/8a59d68e/C/prev/libobs/obs-properties.c
+c_projects/obs-studio/daf5a4b9/C/curr/libobs/obs-internal.h
+c_projects/obs-studio/daf5a4b9/C/prev/libobs/obs-internal.h
