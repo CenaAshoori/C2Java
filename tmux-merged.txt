@@ -1,3302 +1,3611 @@
-
-
-
-
-#include <sys/types.h>
-
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "tmux.h"
-
-static struct screen *window_choose_init(struct window_pane *);
-static void	window_choose_free(struct window_pane *);
-static void	window_choose_resize(struct window_pane *, u_int, u_int);
-static void	window_choose_key(struct window_pane *, struct client *,
-		    struct session *, key_code, struct mouse_event *);
-
-static void	window_choose_default_callback(struct window_choose_data *);
-static struct window_choose_mode_item *window_choose_get_item(
-		    struct window_pane *, key_code, struct mouse_event *);
-
-static void	window_choose_fire_callback(struct window_pane *,
-		    struct window_choose_data *);
-static void	window_choose_redraw_screen(struct window_pane *);
-static void	window_choose_write_line(struct window_pane *,
-		    struct screen_write_ctx *, u_int);
-
-static void	window_choose_scroll_up(struct window_pane *);
-static void	window_choose_scroll_down(struct window_pane *);
-
-static void	window_choose_collapse(struct window_pane *, struct session *,
-		    u_int);
-static void	window_choose_expand(struct window_pane *, struct session *,
-		    u_int);
-static void	window_choose_collapse_all(struct window_pane *);
-
-static void	window_choose_data_free(struct window_choose_data *);
-
-enum window_choose_input_type {
-	WINDOW_CHOOSE_NORMAL = -1,
-	WINDOW_CHOOSE_GOTO_ITEM,
-};
-
-const struct window_mode window_choose_mode = {
-	.name = "choose-mode",
-
-	.init = window_choose_init,
-	.free = window_choose_free,
-	.resize = window_choose_resize,
-	.key = window_choose_key,
-};
-
-struct window_choose_mode_item {
-	struct window_choose_data	*wcd;
-	char				*name;
-	int				 pos;
-	int				 state;
-#define TREE_EXPANDED 0x1
-};
-
-struct window_choose_mode_data {
-	struct screen	        screen;
-
-	struct window_choose_mode_item *list;
-	u_int			list_size;
-	struct window_choose_mode_item *old_list;
-	u_int			old_list_size;
-
-	int			width;
-	u_int			top;
-	u_int			selected;
-	enum window_choose_input_type input_type;
-	const char		*input_prompt;
-	char			*input_str;
-
-	void 			(*callbackfn)(struct window_choose_data *);
-};
-
-static const char window_choose_keys_emacs[] = "0123456789"
-	                                       "abcdefghijklmnoprstuvwxyz"
-	                                       "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-static const char window_choose_keys_vi[] = "0123456789"
-	                                    "abcdefimnoprstuvwxyz"
-	                                    "ABCDEFIJKMNOPQRSTUVWXYZ";
-
-static void	window_choose_free1(struct window_choose_mode_data *);
-static int	window_choose_key_index(struct window_pane *, u_int);
-static int	window_choose_index_key(struct window_pane *, key_code);
-static void	window_choose_prompt_input(enum window_choose_input_type,
-		    const char *, struct window_pane *, key_code);
-static void	window_choose_reset_top(struct window_pane *, u_int);
-
-void
-window_choose_add(struct window_pane *wp, struct window_choose_data *wcd)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct window_choose_mode_item	*item;
-	char				 tmp[11];
-
-	data->list = xreallocarray(data->list, data->list_size + 1,
-	    sizeof *data->list);
-	item = &data->list[data->list_size++];
-
-	item->name = format_expand(wcd->ft, wcd->ft_template);
-	item->wcd = wcd;
-	item->pos = data->list_size - 1;
-	item->state = 0;
-
-	data->width = xsnprintf(tmp, sizeof tmp, "%d", item->pos);
-}
-
-void
-window_choose_set_current(struct window_pane *wp, u_int cur)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct screen			*s = &data->screen;
-
-	data->selected = cur;
-	window_choose_reset_top(wp, screen_size_y(s));
-}
-
-static void
-window_choose_reset_top(struct window_pane *wp, u_int sy)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-
-	data->top = 0;
-	if (data->selected > sy - 1)
-		data->top = data->selected - (sy - 1);
-
-	window_choose_redraw_screen(wp);
-}
-
-void
-window_choose_ready(struct window_pane *wp, u_int cur,
-    void (*callbackfn)(struct window_choose_data *))
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	u_int				 size;
-
-	data->callbackfn = callbackfn;
-	if (data->callbackfn == NULL)
-		data->callbackfn = window_choose_default_callback;
-
-	size = data->old_list_size;
-	data->old_list_size += data->list_size;
-	data->old_list = xreallocarray(data->old_list, data->old_list_size,
-	    sizeof *data->old_list);
-	memcpy(data->old_list + size, data->list, data->list_size *
-	    sizeof *data->list);
-
-	window_choose_set_current(wp, cur);
-	window_choose_collapse_all(wp);
-}
-
-static struct screen *
-window_choose_init(struct window_pane *wp)
-{
-	struct window_choose_mode_data	*data;
-	struct screen			*s;
-
-	wp->modedata = data = xcalloc(1, sizeof *data);
-
-	data->callbackfn = NULL;
-	data->input_type = WINDOW_CHOOSE_NORMAL;
-	data->input_str = xstrdup("");
-	data->input_prompt = NULL;
-
-	data->list = NULL;
-	data->list_size = 0;
-
-	data->old_list = NULL;
-	data->old_list_size = 0;
-
-	data->top = 0;
-
-	s = &data->screen;
-	screen_init(s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
-	s->mode &= ~MODE_CURSOR;
-
-	return (s);
-}
-
-struct window_choose_data *
-window_choose_data_create(int type, struct client *c, struct session *s)
-{
-	struct window_choose_data	*wcd;
-
-	wcd = xmalloc(sizeof *wcd);
-	wcd->type = type;
-
-	wcd->ft = format_create(c, NULL, FORMAT_NONE, 0);
-	wcd->ft_template = NULL;
-
-	wcd->command = NULL;
-
-	wcd->wl = NULL;
-	wcd->pane_id = -1;
-	wcd->idx = -1;
-
-	wcd->tree_session = NULL;
-
-	wcd->start_client = c;
-	wcd->start_client->references++;
-	wcd->start_session = s;
-	wcd->start_session->references++;
-
-	return (wcd);
-}
-
-static void
-window_choose_data_free(struct window_choose_data *wcd)
-{
-	server_client_unref(wcd->start_client);
-	session_remove_ref(wcd->start_session, __func__);
-
-	if (wcd->tree_session != NULL)
-		session_remove_ref(wcd->tree_session, __func__);
-
-	free(wcd->ft_template);
-	format_free(wcd->ft);
-
-	free(wcd->command);
-	free(wcd);
-}
-
-void
-window_choose_data_run(struct window_choose_data *cdata)
-{
-	struct cmd_list		*cmdlist;
-	char			*cause;
-	struct cmdq_item	*item;
-
-
-	if (cdata->command == NULL)
-		return;
-
-	cmdlist = cmd_string_parse(cdata->command, NULL, 0, &cause);
-	if (cmdlist == NULL) {
-		if (cause != NULL) {
-			*cause = toupper((u_char) *cause);
-			status_message_set(cdata->start_client, "%s", cause);
-			free(cause);
-		}
-		return;
-	}
-
-	item = cmdq_get_command(cmdlist, NULL, NULL, 0);
-	cmdq_append(cdata->start_client, item);
-	cmd_list_free(cmdlist);
-}
-
-static void
-window_choose_default_callback(struct window_choose_data *wcd)
-{
-	if (wcd == NULL)
-		return;
-	if (wcd->start_client->flags & CLIENT_DEAD)
-		return;
-
-	window_choose_data_run(wcd);
-}
-
-static void
-window_choose_free(struct window_pane *wp)
-{
-	if (wp->modedata != NULL)
-		window_choose_free1(wp->modedata);
-}
-
-static void
-window_choose_free1(struct window_choose_mode_data *data)
-{
-	struct window_choose_mode_item	*item;
-	u_int				 i;
-
-	if (data == NULL)
-		return;
-
-	for (i = 0; i < data->old_list_size; i++) {
-		item = &data->old_list[i];
-		window_choose_data_free(item->wcd);
-		free(item->name);
-	}
-	free(data->list);
-	free(data->old_list);
-
-	free(data->input_str);
-
-	screen_free(&data->screen);
-	free(data);
-}
-
-static void
-window_choose_resize(struct window_pane *wp, u_int sx, u_int sy)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct screen			*s = &data->screen;
-
-	window_choose_reset_top(wp, sy);
-	screen_resize(s, sx, sy, 0);
-	window_choose_redraw_screen(wp);
-}
-
-static void
-window_choose_fire_callback(struct window_pane *wp,
-    struct window_choose_data *wcd)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-
-	wp->modedata = NULL;
-	window_pane_reset_mode(wp);
-
-	data->callbackfn(wcd);
-
-	window_choose_free1(data);
-}
-
-static void
-window_choose_prompt_input(enum window_choose_input_type input_type,
-    const char *prompt, struct window_pane *wp, key_code key)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	size_t				 input_len;
-
-	data->input_type = input_type;
-	data->input_prompt = prompt;
-	input_len = strlen(data->input_str) + 2;
-
-	data->input_str = xrealloc(data->input_str, input_len);
-	data->input_str[input_len - 2] = key;
-	data->input_str[input_len - 1] = '\0';
-
-	window_choose_redraw_screen(wp);
-}
-
-static void
-window_choose_collapse(struct window_pane *wp, struct session *s, u_int pos)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct window_choose_mode_item	*item, *chosen, *copy = NULL;
-	struct window_choose_data	*wcd;
-	u_int				 i, copy_size = 0;
-
-	chosen = &data->list[pos];
-	chosen->state &= ~TREE_EXPANDED;
-
-
-	for (i = 0; i < data->list_size; i++) {
-		item = &data->list[i];
-		wcd = item->wcd;
-
-		if (s == wcd->tree_session) {
-
-			if (wcd->type & TREE_SESSION) {
-				item->state &= ~TREE_EXPANDED;
-
-				copy = xreallocarray(copy, copy_size + 1,
-				    sizeof *copy);
-				memcpy(&copy[copy_size], item, sizeof *copy);
-				copy_size++;
-
-
-				data->selected = i;
-			}
-		} else {
-			copy = xreallocarray(copy, copy_size + 1, sizeof *copy);
-			memcpy(&copy[copy_size], item, sizeof *copy);
-			copy_size++;
-		}
-	}
-
-	if (copy_size != 0) {
-		free(data->list);
-		data->list = copy;
-		data->list_size = copy_size;
-	}
-}
-
-static void
-window_choose_collapse_all(struct window_pane *wp)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct window_choose_mode_item	*item;
-	struct screen			*scr = &data->screen;
-	struct session			*s, *chosen;
-	u_int				 i;
-
-	chosen = data->list[data->selected].wcd->start_session;
-
-	RB_FOREACH(s, sessions, &sessions)
-		window_choose_collapse(wp, s, data->selected);
-
-
-	for (i = 0; i < data->list_size; i++) {
-		item = &data->list[i];
-
-		if (chosen != item->wcd->tree_session)
-			continue;
-
-		if (item->wcd->type & TREE_SESSION)
-			data->selected = i;
-	}
-	window_choose_reset_top(wp, screen_size_y(scr));
-}
-
-void
-window_choose_expand_all(struct window_pane *wp)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct window_choose_mode_item	*item;
-	struct screen			*scr = &data->screen;
-	struct session			*s;
-	u_int				 i;
-
-	RB_FOREACH(s, sessions, &sessions) {
-		for (i = 0; i < data->list_size; i++) {
-			item = &data->list[i];
-
-			if (s != item->wcd->tree_session)
-				continue;
-
-			if (item->wcd->type & TREE_SESSION)
-				window_choose_expand(wp, s, i);
-		}
-	}
-
-	window_choose_reset_top(wp, screen_size_y(scr));
-}
-
-static void
-window_choose_expand(struct window_pane *wp, struct session *s, u_int pos)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct window_choose_mode_item	*item, *chosen;
-	struct window_choose_data	*wcd;
-	u_int				 i, items;
-
-	chosen = &data->list[pos];
-	items = data->old_list_size - 1;
-
-
-	if (!(chosen->wcd->type & TREE_SESSION))
-		return;
-
-
-	if (chosen->state & TREE_EXPANDED)
-		return;
-
-
-	chosen->state |= TREE_EXPANDED;
-
-
-	for (i = items; i > 0; i--) {
-		item = &data->old_list[i];
-		item->state |= TREE_EXPANDED;
-		wcd = item->wcd;
-
-		if (s == wcd->tree_session) {
-
-			if (wcd->type & TREE_WINDOW) {
-
-				if (pos < i) {
-					data->list = xreallocarray(data->list,
-					    data->list_size + 1,
-					    sizeof *data->list);
-					memmove(&data->list[pos + 2],
-					    &data->list[pos + 1],
-					    (data->list_size - (pos + 1)) *
-					    sizeof *data->list);
-					memcpy(&data->list[pos + 1],
-					    &data->old_list[i],
-					    sizeof *data->list);
-					data->list_size++;
-				} else {
-
-					data->list = xreallocarray(data->list,
-					    data->list_size + 1,
-					    sizeof *data->list);
-					memcpy(&data->list[data->list_size],
-					    &data->old_list[i],
-					    sizeof *data->list);
-					data->list_size++;
-				}
-			}
-		}
-	}
-}
-
-static struct window_choose_mode_item *
-window_choose_get_item(struct window_pane *wp, key_code key,
-    struct mouse_event *m)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	u_int				 x, y, idx;
-
-	if (!KEYC_IS_MOUSE(key))
-		return (&data->list[data->selected]);
-
-	if (cmd_mouse_at(wp, m, &x, &y, 0) != 0)
-		return (NULL);
-
-	idx = data->top + y;
-	if (idx >= data->list_size)
-		return (NULL);
-	return (&data->list[idx]);
-}
-
-static key_code
-window_choose_translate_key(key_code key)
-{
-	switch (key) {
-	case '0'|KEYC_ESCAPE:
-	case '1'|KEYC_ESCAPE:
-	case '2'|KEYC_ESCAPE:
-	case '3'|KEYC_ESCAPE:
-	case '4'|KEYC_ESCAPE:
-	case '5'|KEYC_ESCAPE:
-	case '6'|KEYC_ESCAPE:
-	case '7'|KEYC_ESCAPE:
-	case '8'|KEYC_ESCAPE:
-	case '9'|KEYC_ESCAPE:
-	case '\003': 
-	case 'q':
-	case '\n':
-	case '\r':
-	case KEYC_BSPACE:
-	case ' ':
-	case KEYC_LEFT|KEYC_CTRL:
-	case KEYC_RIGHT|KEYC_CTRL:
-	case KEYC_MOUSEDOWN1_PANE:
-	case KEYC_MOUSEDOWN3_PANE:
-	case KEYC_WHEELUP_PANE:
-	case KEYC_WHEELDOWN_PANE:
-		return (key);
-	case '\031': 
-	case KEYC_UP|KEYC_CTRL:
-		return (KEYC_UP|KEYC_CTRL);
-	case '\002': 
-	case KEYC_PPAGE:
-		return (KEYC_PPAGE);
-	case '\005': 
-	case KEYC_DOWN|KEYC_CTRL:
-		return (KEYC_DOWN|KEYC_CTRL);
-	case '\006': 
-	case KEYC_NPAGE:
-		return (KEYC_NPAGE);
-	case 'h':
-	case KEYC_LEFT:
-		return (KEYC_LEFT);
-	case 'j':
-	case KEYC_DOWN:
-		return (KEYC_DOWN);
-	case 'k':
-	case KEYC_UP:
-		return (KEYC_UP);
-	case 'l':
-	case KEYC_RIGHT:
-		return (KEYC_RIGHT);
-	case 'g':
-	case KEYC_HOME:
-		return (KEYC_HOME);
-	case 'G':
-	case KEYC_END:
-		return (KEYC_END);
-	case 'H':
-		return ('R'|KEYC_ESCAPE);
-	case 'L':
-		return ('r'|KEYC_ESCAPE);
-	}
-	if ((key >= '0' && key <= '9') ||
-	    (key >= 'a' && key <= 'z') ||
-	    (key >= 'A' && key <= 'Z'))
-		return (key);
-	return (KEYC_NONE);
-}
-
-static void
-window_choose_key(struct window_pane *wp, __unused struct client *c,
-    __unused struct session *sp, key_code key, struct mouse_event *m)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct screen			*s = &data->screen;
-	struct screen_write_ctx		 ctx;
-	struct window_choose_mode_item	*item;
-	size_t				 input_len;
-	u_int				 items, n;
-	int				 idx, keys;
-
-	keys = options_get_number(wp->window->options, "mode-keys");
-	if (keys == MODEKEY_VI) {
-		key = window_choose_translate_key(key);
-		if (key == KEYC_NONE)
-			return;
-	}
-	items = data->list_size;
-
-	if (data->input_type == WINDOW_CHOOSE_GOTO_ITEM) {
-		switch (key) {
-		case '\003': 
-		case '\033': 
-		case 'q':
-			data->input_type = WINDOW_CHOOSE_NORMAL;
-			window_choose_redraw_screen(wp);
-			break;
-		case '\n':
-		case '\r':
-			n = strtonum(data->input_str, 0, INT_MAX, NULL);
-			if (n > items - 1) {
-				data->input_type = WINDOW_CHOOSE_NORMAL;
-				window_choose_redraw_screen(wp);
-				break;
-			}
-			window_choose_fire_callback(wp, data->list[n].wcd);
-			break;
-		case KEYC_BSPACE:
-			input_len = strlen(data->input_str);
-			if (input_len > 0)
-				data->input_str[input_len - 1] = '\0';
-			window_choose_redraw_screen(wp);
-			break;
-		default:
-			if (key < '0' || key > '9')
-				break;
-			window_choose_prompt_input(WINDOW_CHOOSE_GOTO_ITEM,
-			    "Goto Item", wp, key);
-			break;
-		}
-		return;
-	}
-
-	switch (key) {
-	case '\003': 
-	case '\033': 
-	case 'q':
-		window_choose_fire_callback(wp, NULL);
-		break;
-	case '\n':
-	case '\r':
-	case KEYC_MOUSEDOWN1_PANE:
-		if ((item = window_choose_get_item(wp, key, m)) == NULL)
-			break;
-		window_choose_fire_callback(wp, item->wcd);
-		break;
-	case ' ':
-	case KEYC_MOUSEDOWN3_PANE:
-		if ((item = window_choose_get_item(wp, key, m)) == NULL)
-			break;
-		if (item->state & TREE_EXPANDED) {
-			window_choose_collapse(wp, item->wcd->tree_session,
-			    data->selected);
-		} else {
-			window_choose_expand(wp, item->wcd->tree_session,
-			    data->selected);
-		}
-		window_choose_redraw_screen(wp);
-		break;
-	case KEYC_LEFT:
-		if ((item = window_choose_get_item(wp, key, m)) == NULL)
-			break;
-		if (item->state & TREE_EXPANDED) {
-			window_choose_collapse(wp, item->wcd->tree_session,
-			    data->selected);
-			window_choose_redraw_screen(wp);
-		}
-		break;
-	case KEYC_LEFT|KEYC_CTRL:
-		window_choose_collapse_all(wp);
-		break;
-	case KEYC_RIGHT:
-		if ((item = window_choose_get_item(wp, key, m)) == NULL)
-			break;
-		if (!(item->state & TREE_EXPANDED)) {
-			window_choose_expand(wp, item->wcd->tree_session,
-			    data->selected);
-			window_choose_redraw_screen(wp);
-		}
-		break;
-	case KEYC_RIGHT|KEYC_CTRL:
-		window_choose_expand_all(wp);
-		break;
-	case '\020': 
-	case KEYC_UP:
-	case KEYC_WHEELUP_PANE:
-		if (items == 0)
-			break;
-		if (data->selected == 0) {
-			data->selected = items - 1;
-			if (data->selected > screen_size_y(s) - 1)
-				data->top = items - screen_size_y(s);
-			window_choose_redraw_screen(wp);
-			break;
-		}
-		data->selected--;
-		if (data->selected < data->top)
-			window_choose_scroll_up(wp);
-		else {
-			screen_write_start(&ctx, wp, NULL);
-			window_choose_write_line(wp, &ctx,
-			    data->selected - data->top);
-			window_choose_write_line(wp, &ctx,
-			    data->selected + 1 - data->top);
-			screen_write_stop(&ctx);
-		}
-		break;
-	case '\016': 
-	case KEYC_DOWN:
-	case KEYC_WHEELDOWN_PANE:
-		if (items == 0)
-			break;
-		if (data->selected == items - 1) {
-			data->selected = 0;
-			data->top = 0;
-			window_choose_redraw_screen(wp);
-			break;
-		}
-		data->selected++;
-
-		if (data->selected < data->top + screen_size_y(s)) {
-			screen_write_start(&ctx, wp, NULL);
-			window_choose_write_line(wp, &ctx,
-			    data->selected - data->top);
-			window_choose_write_line(wp, &ctx,
-			    data->selected - 1 - data->top);
-			screen_write_stop(&ctx);
-		} else
-			window_choose_scroll_down(wp);
-		break;
-	case KEYC_UP|KEYC_CTRL:
-		if (items == 0 || data->top == 0)
-			break;
-		if (data->selected == data->top + screen_size_y(s) - 1) {
-			data->selected--;
-			window_choose_scroll_up(wp);
-			screen_write_start(&ctx, wp, NULL);
-			window_choose_write_line(wp, &ctx,
-			    screen_size_y(s) - 1);
-			screen_write_stop(&ctx);
-		} else
-			window_choose_scroll_up(wp);
-		break;
-	case KEYC_DOWN|KEYC_CTRL:
-		if (items == 0 ||
-		    data->top + screen_size_y(&data->screen) >= items)
-			break;
-		if (data->selected == data->top) {
-			data->selected++;
-			window_choose_scroll_down(wp);
-			screen_write_start(&ctx, wp, NULL);
-			window_choose_write_line(wp, &ctx, 0);
-			screen_write_stop(&ctx);
-		} else
-			window_choose_scroll_down(wp);
-		break;
-	case KEYC_PPAGE:
-		if (data->selected < screen_size_y(s)) {
-			data->selected = 0;
-			data->top = 0;
-		} else {
-			data->selected -= screen_size_y(s);
-			if (data->top < screen_size_y(s))
-				data->top = 0;
-			else
-				data->top -= screen_size_y(s);
-		}
-		window_choose_redraw_screen(wp);
-		break;
-	case KEYC_NPAGE:
-		data->selected += screen_size_y(s);
-		if (data->selected > items - 1)
-			data->selected = items - 1;
-		data->top += screen_size_y(s);
-		if (screen_size_y(s) < items) {
-			if (data->top + screen_size_y(s) > items)
-				data->top = items - screen_size_y(s);
-		} else
-			data->top = 0;
-		if (data->selected < data->top)
-			data->top = data->selected;
-		window_choose_redraw_screen(wp);
-		break;
-	case KEYC_BSPACE:
-		input_len = strlen(data->input_str);
-		if (input_len > 0)
-			data->input_str[input_len - 1] = '\0';
-		window_choose_redraw_screen(wp);
-		break;
-	case '0'|KEYC_ESCAPE:
-	case '1'|KEYC_ESCAPE:
-	case '2'|KEYC_ESCAPE:
-	case '3'|KEYC_ESCAPE:
-	case '4'|KEYC_ESCAPE:
-	case '5'|KEYC_ESCAPE:
-	case '6'|KEYC_ESCAPE:
-	case '7'|KEYC_ESCAPE:
-	case '8'|KEYC_ESCAPE:
-	case '9'|KEYC_ESCAPE:
-		key &= KEYC_MASK_KEY;
-		if (key < '0' || key > '9')
-			break;
-		window_choose_prompt_input(WINDOW_CHOOSE_GOTO_ITEM,
-		    "Goto Item", wp, key);
-		break;
-	case KEYC_HOME:
-	case '<'|KEYC_ESCAPE:
-		data->selected = 0;
-		data->top = 0;
-		window_choose_redraw_screen(wp);
-		break;
-	case 'R'|KEYC_ESCAPE:
-		data->selected = data->top;
-		window_choose_redraw_screen(wp);
-		break;
-	case 'r'|KEYC_ESCAPE:
-		data->selected = data->top + screen_size_y(s) - 1;
-		if (data->selected > items - 1)
-			data->selected = items - 1;
-		window_choose_redraw_screen(wp);
-		break;
-	case KEYC_END:
-	case '>'|KEYC_ESCAPE:
-		data->selected = items - 1;
-		if (screen_size_y(s) < items)
-			data->top = items - screen_size_y(s);
-		else
-			data->top = 0;
-		window_choose_redraw_screen(wp);
-		break;
-	default:
-		idx = window_choose_index_key(wp, key);
-		if (idx < 0 || (u_int) idx >= data->list_size)
-			break;
-		data->selected = idx;
-		window_choose_fire_callback(wp, data->list[idx].wcd);
-		break;
-	}
-}
-
-static void
-window_choose_write_line(struct window_pane *wp, struct screen_write_ctx *ctx,
-    u_int py)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct window_choose_mode_item	*item;
-	struct options			*oo = wp->window->options;
-	struct screen			*s = &data->screen;
-	struct grid_cell		 gc;
-	size_t				 last, xoff = 0;
-	char				 hdr[32], label[32];
-	int				 key;
-
-	if (data->callbackfn == NULL)
-		fatalx("called before callback assigned");
-
-	last = screen_size_y(s) - 1;
-	memcpy(&gc, &grid_default_cell, sizeof gc);
-	gc.flags |= GRID_FLAG_NOPALETTE;
-	if (data->selected == data->top + py)
-		style_apply(&gc, oo, "mode-style");
-
-	screen_write_cursormove(ctx, 0, py);
-	if (data->top + py  < data->list_size) {
-		item = &data->list[data->top + py];
-		if (item->wcd->wl != NULL &&
-		    item->wcd->wl->flags & WINLINK_ALERTFLAGS)
-			gc.attr |= GRID_ATTR_BRIGHT;
-
-		key = window_choose_key_index(wp, data->top + py);
-		if (key != -1)
-			xsnprintf(label, sizeof label, "(%c)", key);
-		else
-			xsnprintf(label, sizeof label, "(%d)", item->pos);
-		screen_write_nputs(ctx, screen_size_x(s) - 1, &gc,
-		    "%*s %s %s", data->width + 2, label,
-
-		    (item->wcd->type & TREE_SESSION) ?
-		    ((item->state & TREE_EXPANDED) ? "-" : "+") : "", item->name);
-	}
-	while (s->cx < screen_size_x(s) - 1)
-		screen_write_putc(ctx, &gc, ' ');
-
-	if (data->input_type != WINDOW_CHOOSE_NORMAL) {
-		style_apply(&gc, oo, "mode-style");
-
-		xoff = xsnprintf(hdr, sizeof hdr,
-			"%s: %s", data->input_prompt, data->input_str);
-		screen_write_cursormove(ctx, 0, last);
-		screen_write_puts(ctx, &gc, "%s", hdr);
-		screen_write_cursormove(ctx, xoff, py);
-		memcpy(&gc, &grid_default_cell, sizeof gc);
-	}
-
-}
-
-static int
-window_choose_key_index(struct window_pane *wp, u_int idx)
-{
-	const char	*ptr;
-	int		 keys;
-
-	keys = options_get_number(wp->window->options, "mode-keys");
-	if (keys == MODEKEY_VI)
-		ptr = window_choose_keys_vi;
-	else
-		ptr = window_choose_keys_emacs;
-	for (; *ptr != '\0'; ptr++) {
-		if (idx-- == 0)
-			return (*ptr);
-	}
-	return (-1);
-}
-
-static int
-window_choose_index_key(struct window_pane *wp, key_code key)
-{
-	const char	*ptr;
-	int		 keys;
-	u_int		 idx = 0;
-
-	keys = options_get_number(wp->window->options, "mode-keys");
-	if (keys == MODEKEY_VI)
-		ptr = window_choose_keys_vi;
-	else
-		ptr = window_choose_keys_emacs;
-	for (; *ptr != '\0'; ptr++) {
-		if (key == (key_code)*ptr)
-			return (idx);
-		idx++;
-	}
-	return (-1);
-}
-
-static void
-window_choose_redraw_screen(struct window_pane *wp)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct screen			*s = &data->screen;
-	struct screen_write_ctx	 	 ctx;
-	u_int				 i;
-
-	screen_write_start(&ctx, wp, NULL);
-	for (i = 0; i < screen_size_y(s); i++)
-		window_choose_write_line(wp, &ctx, i);
-	screen_write_stop(&ctx);
-}
-
-static void
-window_choose_scroll_up(struct window_pane *wp)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct screen_write_ctx		 ctx;
-
-	if (data->top == 0)
-		return;
-	data->top--;
-
-	screen_write_start(&ctx, wp, NULL);
-	screen_write_cursormove(&ctx, 0, 0);
-	screen_write_insertline(&ctx, 1, 8);
-	window_choose_write_line(wp, &ctx, 0);
-	if (screen_size_y(&data->screen) > 1)
-		window_choose_write_line(wp, &ctx, 1);
-	screen_write_stop(&ctx);
-}
-
-static void
-window_choose_scroll_down(struct window_pane *wp)
-{
-	struct window_choose_mode_data	*data = wp->modedata;
-	struct screen			*s = &data->screen;
-	struct screen_write_ctx		 ctx;
-
-	if (data->top >= data->list_size)
-		return;
-	data->top++;
-
-	screen_write_start(&ctx, wp, NULL);
-	screen_write_cursormove(&ctx, 0, 0);
-	screen_write_deleteline(&ctx, 1, 8);
-	window_choose_write_line(wp, &ctx, screen_size_y(s) - 1);
-	if (screen_size_y(&data->screen) > 1)
-		window_choose_write_line(wp, &ctx, screen_size_y(s) - 2);
-	screen_write_stop(&ctx);
-}
-
-struct window_choose_data *
-window_choose_add_session(struct window_pane *wp, struct client *c,
-    struct session *s, const char *template, const char *action, u_int idx)
-{
-	struct window_choose_data	*wcd;
-
-	wcd = window_choose_data_create(TREE_SESSION, c, c->session);
-	wcd->idx = s->id;
-
-	wcd->tree_session = s;
-	wcd->tree_session->references++;
-
-	wcd->ft_template = xstrdup(template);
-	format_add(wcd->ft, "line", "%u", idx);
-	format_defaults(wcd->ft, NULL, s, NULL, NULL);
-
-	wcd->command = cmd_template_replace(action, s->name, 1);
-
-	window_choose_add(wp, wcd);
-
-	return (wcd);
-}
-
-struct window_choose_data *
-window_choose_add_window(struct window_pane *wp, struct client *c,
-    struct session *s, struct winlink *wl, const char *template,
-    const char *action, u_int idx)
-{
-	struct window_choose_data	*wcd;
-	char				*expanded;
-
-	wcd = window_choose_data_create(TREE_WINDOW, c, c->session);
-	wcd->idx = wl->idx;
-
-	wcd->wl = wl;
-
-	wcd->tree_session = s;
-	wcd->tree_session->references++;
-
-	wcd->ft_template = xstrdup(template);
-	format_add(wcd->ft, "line", "%u", idx);
-	format_defaults(wcd->ft, NULL, s, wl, NULL);
-
-	xasprintf(&expanded, "%s:%d", s->name, wl->idx);
-	wcd->command = cmd_template_replace(action, expanded, 1);
-	free(expanded);
-
-	window_choose_add(wp, wcd);
-
-	return (wcd);
-}
+
+
+
+
+#include <sys/types.h>
+#include <sys/time.h>
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "tmux.h"
+
+static struct screen	*window_client_init(struct window_pane *,
+			     struct cmd_find_state *, struct args *);
+static void		 window_client_free(struct window_pane *);
+static void		 window_client_resize(struct window_pane *, u_int,
+			     u_int);
+static void		 window_client_key(struct window_pane *,
+			     struct client *, struct session *, key_code,
+			     struct mouse_event *);
+
+#define WINDOW_CLIENT_DEFAULT_COMMAND "detach-client -t '%%'"
+
+const struct window_mode window_client_mode = {
+	.name = "client-mode",
+
+	.init = window_client_init,
+	.free = window_client_free,
+	.resize = window_client_resize,
+	.key = window_client_key,
+};
+
+enum window_client_sort_type {
+	WINDOW_CLIENT_BY_NAME,
+	WINDOW_CLIENT_BY_CREATION_TIME,
+	WINDOW_CLIENT_BY_ACTIVITY_TIME,
+};
+static const char *window_client_sort_list[] = {
+	"name",
+	"creation time",
+	"activity time"
+};
+
+struct window_client_itemdata {
+	struct client	*c;
+};
+
+struct window_client_modedata {
+	struct mode_tree_data		 *data;
+	char				 *command;
+
+	struct window_client_itemdata	**item_list;
+	u_int				  item_size;
+};
+
+static struct window_client_itemdata *
+window_client_add_item(struct window_client_modedata *data)
+{
+	struct window_client_itemdata	*item;
+
+	data->item_list = xreallocarray(data->item_list, data->item_size + 1,
+	    sizeof *data->item_list);
+	item = data->item_list[data->item_size++] = xcalloc(1, sizeof *item);
+	return (item);
+}
+
+static void
+window_client_free_item(struct window_client_itemdata *item)
+{
+	server_client_unref(item->c);
+	free(item);
+}
+
+static int
+window_client_cmp_name(const void *a0, const void *b0)
+{
+	const struct window_client_itemdata *const *a = a0;
+	const struct window_client_itemdata *const *b = b0;
+
+	return (strcmp((*a)->c->name, (*b)->c->name));
+}
+
+static int
+window_client_cmp_creation_time(const void *a0, const void *b0)
+{
+	const struct window_client_itemdata *const *a = a0;
+	const struct window_client_itemdata *const *b = b0;
+
+	if (timercmp(&(*a)->c->creation_time, &(*b)->c->creation_time, >))
+		return (-1);
+	if (timercmp(&(*a)->c->creation_time, &(*b)->c->creation_time, <))
+		return (1);
+	return (0);
+}
+
+static int
+window_client_cmp_activity_time(const void *a0, const void *b0)
+{
+	const struct window_client_itemdata *const *a = a0;
+	const struct window_client_itemdata *const *b = b0;
+
+	if (timercmp(&(*a)->c->activity_time, &(*b)->c->activity_time, >))
+		return (-1);
+	if (timercmp(&(*a)->c->activity_time, &(*b)->c->activity_time, <))
+		return (1);
+	return (0);
+}
+
+static void
+window_client_build(void *modedata, u_int sort_type, __unused uint64_t *tag)
+{
+	struct window_client_modedata	*data = modedata;
+	struct window_client_itemdata	*item;
+	u_int				 i;
+	struct client			*c;
+	char				*tim;
+	char				*text;
+
+	for (i = 0; i < data->item_size; i++)
+		window_client_free_item(data->item_list[i]);
+	free(data->item_list);
+	data->item_list = NULL;
+	data->item_size = 0;
+
+	TAILQ_FOREACH(c, &clients, entry) {
+		if (c->session == NULL || (c->flags & (CLIENT_DETACHING)))
+			continue;
+
+		item = window_client_add_item(data);
+		item->c = c;
+
+		c->references++;
+	}
+
+	switch (sort_type) {
+	case WINDOW_CLIENT_BY_NAME:
+		qsort(data->item_list, data->item_size, sizeof *data->item_list,
+		    window_client_cmp_name);
+		break;
+	case WINDOW_CLIENT_BY_CREATION_TIME:
+		qsort(data->item_list, data->item_size, sizeof *data->item_list,
+		    window_client_cmp_creation_time);
+		break;
+	case WINDOW_CLIENT_BY_ACTIVITY_TIME:
+		qsort(data->item_list, data->item_size, sizeof *data->item_list,
+		    window_client_cmp_activity_time);
+		break;
+	}
+
+	for (i = 0; i < data->item_size; i++) {
+		item = data->item_list[i];
+		c = item->c;
+
+		tim = ctime(&c->activity_time.tv_sec);
+		*strchr(tim, '\n') = '\0';
+
+		xasprintf(&text, "session %s (%s)", c->session->name, tim);
+		mode_tree_add(data->data, NULL, item, (uint64_t)c, c->name,
+		    text, -1);
+		free(text);
+	}
+}
+
+static struct screen *
+window_client_draw(__unused void *modedata, void *itemdata, u_int sx, u_int sy)
+{
+	struct window_client_itemdata	*item = itemdata;
+	struct client			*c = item->c;
+	struct window_pane		*wp;
+	static struct screen		 s;
+	struct screen_write_ctx		 ctx;
+
+	if (c->session == NULL || (c->flags & (CLIENT_DEAD|CLIENT_DETACHING)))
+		return (NULL);
+	wp = c->session->curw->window->active;
+
+	screen_init(&s, sx, sy, 0);
+
+	screen_write_start(&ctx, NULL, &s);
+	screen_write_clearscreen(&ctx, 8);
+
+	screen_write_preview(&ctx, &wp->base, sx, sy - 3);
+
+	screen_write_cursormove(&ctx, 0, sy - 2);
+	screen_write_line(&ctx, sx, 0, 0);
+
+	screen_write_cursormove(&ctx, 0, sy - 1);
+	if (c->old_status != NULL)
+		screen_write_copy(&ctx, c->old_status, 0, 0, sx, 1, NULL, NULL);
+	else
+		screen_write_copy(&ctx, &c->status, 0, 0, sx, 1, NULL, NULL);
+
+	screen_write_stop(&ctx);
+	return (&s);
+}
+
+static struct screen *
+window_client_init(struct window_pane *wp, __unused struct cmd_find_state *fs,
+    struct args *args)
+{
+	struct window_client_modedata	*data;
+	struct screen			*s;
+
+	wp->modedata = data = xcalloc(1, sizeof *data);
+
+	if (args == NULL || args->argc == 0)
+		data->command = xstrdup(WINDOW_CLIENT_DEFAULT_COMMAND);
+	else
+		data->command = xstrdup(args->argv[0]);
+
+	data->data = mode_tree_start(wp, window_client_build,
+	    window_client_draw, data, window_client_sort_list,
+	    nitems(window_client_sort_list), &s);
+
+	mode_tree_build(data->data);
+	mode_tree_draw(data->data);
+
+	return (s);
+}
+
+static void
+window_client_free(struct window_pane *wp)
+{
+	struct window_client_modedata	*data = wp->modedata;
+	u_int				 i;
+
+	if (data == NULL)
+		return;
+
+	mode_tree_free(data->data);
+
+	for (i = 0; i < data->item_size; i++)
+		window_client_free_item(data->item_list[i]);
+	free(data->item_list);
+
+	free(data->command);
+	free(data);
+}
+
+static void
+window_client_resize(struct window_pane *wp, u_int sx, u_int sy)
+{
+	struct window_client_modedata	*data = wp->modedata;
+
+	mode_tree_resize(data->data, sx, sy);
+}
+
+static void
+window_client_do_detach(void* modedata, void *itemdata, key_code key)
+{
+	struct window_client_modedata	*data = modedata;
+	struct window_client_itemdata	*item = itemdata;
+
+	if (item == mode_tree_get_current(data->data))
+		mode_tree_down(data->data, 0);
+	if (key == 'd' || key == 'D')
+		server_client_detach(item->c, MSG_DETACH);
+	else if (key == 'x' || key == 'X')
+		server_client_detach(item->c, MSG_DETACHKILL);
+	else if (key == 'z' || key == 'Z')
+		server_client_suspend(item->c);
+}
+
+static void
+window_client_key(struct window_pane *wp, struct client *c,
+    __unused struct session *s, key_code key, struct mouse_event *m)
+{
+	struct window_client_modedata	*data = wp->modedata;
+	struct window_client_itemdata	*item;
+	char				*command, *name;
+	int				 finished;
+
+
+
+	finished = mode_tree_key(data->data, &key, m);
+	switch (key) {
+	case 'd':
+	case 'x':
+	case 'z':
+		item = mode_tree_get_current(data->data);
+		window_client_do_detach(data, item, key);
+		mode_tree_build(data->data);
+		break;
+	case 'D':
+	case 'X':
+	case 'Z':
+		mode_tree_each_tagged(data->data, window_client_do_detach, key,
+		    0);
+		mode_tree_build(data->data);
+		break;
+	case '\r':
+		item = mode_tree_get_current(data->data);
+		command = xstrdup(data->command);
+		name = xstrdup(item->c->ttyname);
+		window_pane_reset_mode(wp);
+		mode_tree_run_command(c, NULL, command, name);
+		free(name);
+		free(command);
+		return;
+	}
+	if (finished || server_client_how_many() == 0)
+		window_pane_reset_mode(wp);
+	else {
+		mode_tree_draw(data->data);
+		wp->flags |= PANE_REDRAW;
+	}
+}
 
 <code block>
-
-
-
-
-#include <sys/types.h>
-
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#include "tmux.h"
-
-
-
-RB_HEAD(environ, environ_entry);
-static int environ_cmp(struct environ_entry *, struct environ_entry *);
-RB_GENERATE_STATIC(environ, environ_entry, entry, environ_cmp);
-
-static int
-environ_cmp(struct environ_entry *envent1, struct environ_entry *envent2)
-{
-	return (strcmp(envent1->name, envent2->name));
-}
-
-
-struct environ *
-environ_create(void)
-{
-	struct environ	*env;
-
-	env = xcalloc(1, sizeof *env);
-	RB_INIT(env);
-
-	return (env);
-}
-
-
-void
-environ_free(struct environ *env)
-{
-	struct environ_entry	*envent, *envent1;
-
-	RB_FOREACH_SAFE(envent, environ, env, envent1) {
-		RB_REMOVE(environ, env, envent);
-		free(envent->name);
-		free(envent->value);
-		free(envent);
-	}
-	free(env);
-}
-
-struct environ_entry *
-environ_first(struct environ *env)
-{
-	return (RB_MIN(environ, env));
-}
-
-struct environ_entry *
-environ_next(struct environ_entry *envent)
-{
-	return (RB_NEXT(environ, env, envent));
-}
-
-
-void
-environ_copy(struct environ *srcenv, struct environ *dstenv)
-{
-	struct environ_entry	*envent;
-
-	RB_FOREACH(envent, environ, srcenv) {
-		if (envent->value == NULL)
-			environ_clear(dstenv, envent->name);
-		else
-			environ_set(dstenv, envent->name, "%s", envent->value);
-	}
-}
-
-
-struct environ_entry *
-environ_find(struct environ *env, const char *name)
-{
-	struct environ_entry	envent;
-
-	envent.name = (char *) name;
-	return (RB_FIND(environ, env, &envent));
-}
-
-
-void
-environ_set(struct environ *env, const char *name, const char *fmt, ...)
-{
-	struct environ_entry	*envent;
-	va_list			 ap;
-
-	va_start(ap, fmt);
-	if ((envent = environ_find(env, name)) != NULL) {
-		free(envent->value);
-		xvasprintf(&envent->value, fmt, ap);
-	} else {
-		envent = xmalloc(sizeof *envent);
-		envent->name = xstrdup(name);
-		xvasprintf(&envent->value, fmt, ap);
-		RB_INSERT(environ, env, envent);
-	}
-	va_end(ap);
-}
-
-
-void
-environ_clear(struct environ *env, const char *name)
-{
-	struct environ_entry	*envent;
-
-	if ((envent = environ_find(env, name)) != NULL) {
-		free(envent->value);
-		envent->value = NULL;
-	} else {
-		envent = xmalloc(sizeof *envent);
-		envent->name = xstrdup(name);
-		envent->value = NULL;
-		RB_INSERT(environ, env, envent);
-	}
-}
-
-
-void
-environ_put(struct environ *env, const char *var)
-{
-	char	*name, *value;
-
-	value = strchr(var, '=');
-	if (value == NULL)
-		return;
-	value++;
-
-	name = xstrdup(var);
-	name[strcspn(name, "=")] = '\0';
-
-	environ_set(env, name, "%s", value);
-	free(name);
-}
-
-
-void
-environ_unset(struct environ *env, const char *name)
-{
-	struct environ_entry	*envent;
-
-	if ((envent = environ_find(env, name)) == NULL)
-		return;
-	RB_REMOVE(environ, env, envent);
-	free(envent->name);
-	free(envent->value);
-	free(envent);
-}
-
-
-void
-environ_update(struct options *oo, struct environ *src, struct environ *dst)
-{
-	struct environ_entry	*envent;
-	struct options_entry	*o;
-	u_int			 size, idx;
-	const char		*value;
-
-	o = options_get(oo, "update-environment");
-	if (o == NULL || options_array_size(o, &size) == -1)
-		return;
-	for (idx = 0; idx < size; idx++) {
-		value = options_array_get(o, idx);
-		if (value == NULL)
-			continue;
-		if ((envent = environ_find(src, value)) == NULL)
-			environ_clear(dst, value);
-		else
-			environ_set(dst, envent->name, "%s", envent->value);
-	}
-}
-
-
-void
-environ_push(struct environ *env)
-{
-	struct environ_entry	*envent;
-
-	environ = xcalloc(1, sizeof *environ);
-	RB_FOREACH(envent, environ, env) {
-		if (envent->value != NULL && *envent->name != '\0')
-			setenv(envent->name, envent->value, 1);
-	}
-}
-
-
-void
-environ_log(struct environ *env, const char *prefix)
-{
-	struct environ_entry	*envent;
-
-	RB_FOREACH(envent, environ, env) {
-		if (envent->value != NULL && *envent->name != '\0') {
-			log_debug("%s%s=%s", prefix, envent->name,
-			    envent->value);
-		}
-	}
-}
-
-
-struct environ *
-environ_for_session(struct session *s, int no_TERM)
-{
-	struct environ	*env;
-	const char	*value;
-	int		 idx;
-
-	env = environ_create();
-	environ_copy(global_environ, env);
-	if (s != NULL)
-		environ_copy(s->environ, env);
-
-	if (!no_TERM) {
-		value = options_get_string(global_options, "default-terminal");
-		environ_set(env, "TERM", "%s", value);
-	}
-
-	if (s != NULL)
-		idx = s->id;
-	else
-		idx = -1;
-	environ_set(env, "TMUX", "%s,%ld,%d", socket_path, (long)getpid(), idx);
-
-	return (env);
-}
+
+
+
+
+#include <sys/types.h>
+
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "tmux.h"
+
+static struct screen *window_choose_init(struct window_pane *);
+static void	window_choose_free(struct window_pane *);
+static void	window_choose_resize(struct window_pane *, u_int, u_int);
+static void	window_choose_key(struct window_pane *, struct client *,
+		    struct session *, key_code, struct mouse_event *);
+
+static void	window_choose_default_callback(struct window_choose_data *);
+static struct window_choose_mode_item *window_choose_get_item(
+		    struct window_pane *, key_code, struct mouse_event *);
+
+static void	window_choose_fire_callback(struct window_pane *,
+		    struct window_choose_data *);
+static void	window_choose_redraw_screen(struct window_pane *);
+static void	window_choose_write_line(struct window_pane *,
+		    struct screen_write_ctx *, u_int);
+
+static void	window_choose_scroll_up(struct window_pane *);
+static void	window_choose_scroll_down(struct window_pane *);
+
+static void	window_choose_collapse(struct window_pane *, struct session *,
+		    u_int);
+static void	window_choose_expand(struct window_pane *, struct session *,
+		    u_int);
+static void	window_choose_collapse_all(struct window_pane *);
+
+static void	window_choose_data_free(struct window_choose_data *);
+
+enum window_choose_input_type {
+	WINDOW_CHOOSE_NORMAL = -1,
+	WINDOW_CHOOSE_GOTO_ITEM,
+};
+
+const struct window_mode window_choose_mode = {
+	.name = "choose-mode",
+
+	.init = window_choose_init,
+	.free = window_choose_free,
+	.resize = window_choose_resize,
+	.key = window_choose_key,
+};
+
+struct window_choose_mode_item {
+	struct window_choose_data	*wcd;
+	char				*name;
+	int				 pos;
+	int				 state;
+#define TREE_EXPANDED 0x1
+};
+
+struct window_choose_mode_data {
+	struct screen	        screen;
+
+	struct window_choose_mode_item *list;
+	u_int			list_size;
+	struct window_choose_mode_item *old_list;
+	u_int			old_list_size;
+
+	int			width;
+	u_int			top;
+	u_int			selected;
+	enum window_choose_input_type input_type;
+	const char		*input_prompt;
+	char			*input_str;
+
+	void 			(*callbackfn)(struct window_choose_data *);
+};
+
+static const char window_choose_keys_emacs[] = "0123456789"
+	                                       "abcdefghijklmnoprstuvwxyz"
+	                                       "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+static const char window_choose_keys_vi[] = "0123456789"
+	                                    "abcdefimnoprstuvwxyz"
+	                                    "ABCDEFIJKMNOPQRSTUVWXYZ";
+
+static void	window_choose_free1(struct window_choose_mode_data *);
+static int	window_choose_key_index(struct window_pane *, u_int);
+static int	window_choose_index_key(struct window_pane *, key_code);
+static void	window_choose_prompt_input(enum window_choose_input_type,
+		    const char *, struct window_pane *, key_code);
+static void	window_choose_reset_top(struct window_pane *, u_int);
+
+void
+window_choose_add(struct window_pane *wp, struct window_choose_data *wcd)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct window_choose_mode_item	*item;
+	char				 tmp[11];
+
+	data->list = xreallocarray(data->list, data->list_size + 1,
+	    sizeof *data->list);
+	item = &data->list[data->list_size++];
+
+	item->name = format_expand(wcd->ft, wcd->ft_template);
+	item->wcd = wcd;
+	item->pos = data->list_size - 1;
+	item->state = 0;
+
+	data->width = xsnprintf(tmp, sizeof tmp, "%d", item->pos);
+}
+
+void
+window_choose_set_current(struct window_pane *wp, u_int cur)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct screen			*s = &data->screen;
+
+	data->selected = cur;
+	window_choose_reset_top(wp, screen_size_y(s));
+}
+
+static void
+window_choose_reset_top(struct window_pane *wp, u_int sy)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+
+	data->top = 0;
+	if (data->selected > sy - 1)
+		data->top = data->selected - (sy - 1);
+
+	window_choose_redraw_screen(wp);
+}
+
+void
+window_choose_ready(struct window_pane *wp, u_int cur,
+    void (*callbackfn)(struct window_choose_data *))
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	u_int				 size;
+
+	data->callbackfn = callbackfn;
+	if (data->callbackfn == NULL)
+		data->callbackfn = window_choose_default_callback;
+
+	size = data->old_list_size;
+	data->old_list_size += data->list_size;
+	data->old_list = xreallocarray(data->old_list, data->old_list_size,
+	    sizeof *data->old_list);
+	memcpy(data->old_list + size, data->list, data->list_size *
+	    sizeof *data->list);
+
+	window_choose_set_current(wp, cur);
+	window_choose_collapse_all(wp);
+}
+
+static struct screen *
+window_choose_init(struct window_pane *wp)
+{
+	struct window_choose_mode_data	*data;
+	struct screen			*s;
+
+	wp->modedata = data = xcalloc(1, sizeof *data);
+
+	data->callbackfn = NULL;
+	data->input_type = WINDOW_CHOOSE_NORMAL;
+	data->input_str = xstrdup("");
+	data->input_prompt = NULL;
+
+	data->list = NULL;
+	data->list_size = 0;
+
+	data->old_list = NULL;
+	data->old_list_size = 0;
+
+	data->top = 0;
+
+	s = &data->screen;
+	screen_init(s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
+	s->mode &= ~MODE_CURSOR;
+
+	return (s);
+}
+
+struct window_choose_data *
+window_choose_data_create(int type, struct client *c, struct session *s)
+{
+	struct window_choose_data	*wcd;
+
+	wcd = xmalloc(sizeof *wcd);
+	wcd->type = type;
+
+	wcd->ft = format_create(c, NULL, FORMAT_NONE, 0);
+	wcd->ft_template = NULL;
+
+	wcd->command = NULL;
+
+	wcd->wl = NULL;
+	wcd->pane_id = -1;
+	wcd->idx = -1;
+
+	wcd->tree_session = NULL;
+
+	wcd->start_client = c;
+	wcd->start_client->references++;
+	wcd->start_session = s;
+	wcd->start_session->references++;
+
+	return (wcd);
+}
+
+static void
+window_choose_data_free(struct window_choose_data *wcd)
+{
+	server_client_unref(wcd->start_client);
+	session_remove_ref(wcd->start_session, __func__);
+
+	if (wcd->tree_session != NULL)
+		session_remove_ref(wcd->tree_session, __func__);
+
+	free(wcd->ft_template);
+	format_free(wcd->ft);
+
+	free(wcd->command);
+	free(wcd);
+}
+
+void
+window_choose_data_run(struct window_choose_data *cdata)
+{
+	struct cmd_list		*cmdlist;
+	char			*cause;
+	struct cmdq_item	*item;
+
+
+	if (cdata->command == NULL)
+		return;
+
+	cmdlist = cmd_string_parse(cdata->command, NULL, 0, &cause);
+	if (cmdlist == NULL) {
+		if (cause != NULL) {
+			*cause = toupper((u_char) *cause);
+			status_message_set(cdata->start_client, "%s", cause);
+			free(cause);
+		}
+		return;
+	}
+
+	item = cmdq_get_command(cmdlist, NULL, NULL, 0);
+	cmdq_append(cdata->start_client, item);
+	cmd_list_free(cmdlist);
+}
+
+static void
+window_choose_default_callback(struct window_choose_data *wcd)
+{
+	if (wcd == NULL)
+		return;
+	if (wcd->start_client->flags & CLIENT_DEAD)
+		return;
+
+	window_choose_data_run(wcd);
+}
+
+static void
+window_choose_free(struct window_pane *wp)
+{
+	if (wp->modedata != NULL)
+		window_choose_free1(wp->modedata);
+}
+
+static void
+window_choose_free1(struct window_choose_mode_data *data)
+{
+	struct window_choose_mode_item	*item;
+	u_int				 i;
+
+	if (data == NULL)
+		return;
+
+	for (i = 0; i < data->old_list_size; i++) {
+		item = &data->old_list[i];
+		window_choose_data_free(item->wcd);
+		free(item->name);
+	}
+	free(data->list);
+	free(data->old_list);
+
+	free(data->input_str);
+
+	screen_free(&data->screen);
+	free(data);
+}
+
+static void
+window_choose_resize(struct window_pane *wp, u_int sx, u_int sy)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct screen			*s = &data->screen;
+
+	window_choose_reset_top(wp, sy);
+	screen_resize(s, sx, sy, 0);
+	window_choose_redraw_screen(wp);
+}
+
+static void
+window_choose_fire_callback(struct window_pane *wp,
+    struct window_choose_data *wcd)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+
+	wp->modedata = NULL;
+	window_pane_reset_mode(wp);
+
+	data->callbackfn(wcd);
+
+	window_choose_free1(data);
+}
+
+static void
+window_choose_prompt_input(enum window_choose_input_type input_type,
+    const char *prompt, struct window_pane *wp, key_code key)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	size_t				 input_len;
+
+	data->input_type = input_type;
+	data->input_prompt = prompt;
+	input_len = strlen(data->input_str) + 2;
+
+	data->input_str = xrealloc(data->input_str, input_len);
+	data->input_str[input_len - 2] = key;
+	data->input_str[input_len - 1] = '\0';
+
+	window_choose_redraw_screen(wp);
+}
+
+static void
+window_choose_collapse(struct window_pane *wp, struct session *s, u_int pos)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct window_choose_mode_item	*item, *chosen, *copy = NULL;
+	struct window_choose_data	*wcd;
+	u_int				 i, copy_size = 0;
+
+	chosen = &data->list[pos];
+	chosen->state &= ~TREE_EXPANDED;
+
+
+	for (i = 0; i < data->list_size; i++) {
+		item = &data->list[i];
+		wcd = item->wcd;
+
+		if (s == wcd->tree_session) {
+
+			if (wcd->type & TREE_SESSION) {
+				item->state &= ~TREE_EXPANDED;
+
+				copy = xreallocarray(copy, copy_size + 1,
+				    sizeof *copy);
+				memcpy(&copy[copy_size], item, sizeof *copy);
+				copy_size++;
+
+
+				data->selected = i;
+			}
+		} else {
+			copy = xreallocarray(copy, copy_size + 1, sizeof *copy);
+			memcpy(&copy[copy_size], item, sizeof *copy);
+			copy_size++;
+		}
+	}
+
+	if (copy_size != 0) {
+		free(data->list);
+		data->list = copy;
+		data->list_size = copy_size;
+	}
+}
+
+static void
+window_choose_collapse_all(struct window_pane *wp)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct window_choose_mode_item	*item;
+	struct screen			*scr = &data->screen;
+	struct session			*s, *chosen;
+	u_int				 i;
+
+	chosen = data->list[data->selected].wcd->start_session;
+
+	RB_FOREACH(s, sessions, &sessions)
+		window_choose_collapse(wp, s, data->selected);
+
+
+	for (i = 0; i < data->list_size; i++) {
+		item = &data->list[i];
+
+		if (chosen != item->wcd->tree_session)
+			continue;
+
+		if (item->wcd->type & TREE_SESSION)
+			data->selected = i;
+	}
+	window_choose_reset_top(wp, screen_size_y(scr));
+}
+
+void
+window_choose_expand_all(struct window_pane *wp)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct window_choose_mode_item	*item;
+	struct screen			*scr = &data->screen;
+	struct session			*s;
+	u_int				 i;
+
+	RB_FOREACH(s, sessions, &sessions) {
+		for (i = 0; i < data->list_size; i++) {
+			item = &data->list[i];
+
+			if (s != item->wcd->tree_session)
+				continue;
+
+			if (item->wcd->type & TREE_SESSION)
+				window_choose_expand(wp, s, i);
+		}
+	}
+
+	window_choose_reset_top(wp, screen_size_y(scr));
+}
+
+static void
+window_choose_expand(struct window_pane *wp, struct session *s, u_int pos)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct window_choose_mode_item	*item, *chosen;
+	struct window_choose_data	*wcd;
+	u_int				 i, items;
+
+	chosen = &data->list[pos];
+	items = data->old_list_size - 1;
+
+
+	if (!(chosen->wcd->type & TREE_SESSION))
+		return;
+
+
+	if (chosen->state & TREE_EXPANDED)
+		return;
+
+
+	chosen->state |= TREE_EXPANDED;
+
+
+	for (i = items; i > 0; i--) {
+		item = &data->old_list[i];
+		item->state |= TREE_EXPANDED;
+		wcd = item->wcd;
+
+		if (s == wcd->tree_session) {
+
+			if (wcd->type & TREE_WINDOW) {
+
+				if (pos < i) {
+					data->list = xreallocarray(data->list,
+					    data->list_size + 1,
+					    sizeof *data->list);
+					memmove(&data->list[pos + 2],
+					    &data->list[pos + 1],
+					    (data->list_size - (pos + 1)) *
+					    sizeof *data->list);
+					memcpy(&data->list[pos + 1],
+					    &data->old_list[i],
+					    sizeof *data->list);
+					data->list_size++;
+				} else {
+
+					data->list = xreallocarray(data->list,
+					    data->list_size + 1,
+					    sizeof *data->list);
+					memcpy(&data->list[data->list_size],
+					    &data->old_list[i],
+					    sizeof *data->list);
+					data->list_size++;
+				}
+			}
+		}
+	}
+}
+
+static struct window_choose_mode_item *
+window_choose_get_item(struct window_pane *wp, key_code key,
+    struct mouse_event *m)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	u_int				 x, y, idx;
+
+	if (!KEYC_IS_MOUSE(key))
+		return (&data->list[data->selected]);
+
+	if (cmd_mouse_at(wp, m, &x, &y, 0) != 0)
+		return (NULL);
+
+	idx = data->top + y;
+	if (idx >= data->list_size)
+		return (NULL);
+	return (&data->list[idx]);
+}
+
+static key_code
+window_choose_translate_key(key_code key)
+{
+	switch (key) {
+	case '0'|KEYC_ESCAPE:
+	case '1'|KEYC_ESCAPE:
+	case '2'|KEYC_ESCAPE:
+	case '3'|KEYC_ESCAPE:
+	case '4'|KEYC_ESCAPE:
+	case '5'|KEYC_ESCAPE:
+	case '6'|KEYC_ESCAPE:
+	case '7'|KEYC_ESCAPE:
+	case '8'|KEYC_ESCAPE:
+	case '9'|KEYC_ESCAPE:
+	case '\003': 
+	case 'q':
+	case '\n':
+	case '\r':
+	case KEYC_BSPACE:
+	case ' ':
+	case KEYC_LEFT|KEYC_CTRL:
+	case KEYC_RIGHT|KEYC_CTRL:
+	case KEYC_MOUSEDOWN1_PANE:
+	case KEYC_MOUSEDOWN3_PANE:
+	case KEYC_WHEELUP_PANE:
+	case KEYC_WHEELDOWN_PANE:
+		return (key);
+	case '\031': 
+	case KEYC_UP|KEYC_CTRL:
+		return (KEYC_UP|KEYC_CTRL);
+	case '\002': 
+	case KEYC_PPAGE:
+		return (KEYC_PPAGE);
+	case '\005': 
+	case KEYC_DOWN|KEYC_CTRL:
+		return (KEYC_DOWN|KEYC_CTRL);
+	case '\006': 
+	case KEYC_NPAGE:
+		return (KEYC_NPAGE);
+	case 'h':
+	case KEYC_LEFT:
+		return (KEYC_LEFT);
+	case 'j':
+	case KEYC_DOWN:
+		return (KEYC_DOWN);
+	case 'k':
+	case KEYC_UP:
+		return (KEYC_UP);
+	case 'l':
+	case KEYC_RIGHT:
+		return (KEYC_RIGHT);
+	case 'g':
+	case KEYC_HOME:
+		return (KEYC_HOME);
+	case 'G':
+	case KEYC_END:
+		return (KEYC_END);
+	case 'H':
+		return ('R'|KEYC_ESCAPE);
+	case 'L':
+		return ('r'|KEYC_ESCAPE);
+	}
+	if ((key >= '0' && key <= '9') ||
+	    (key >= 'a' && key <= 'z') ||
+	    (key >= 'A' && key <= 'Z'))
+		return (key);
+	return (KEYC_NONE);
+}
+
+static void
+window_choose_key(struct window_pane *wp, __unused struct client *c,
+    __unused struct session *sp, key_code key, struct mouse_event *m)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct screen			*s = &data->screen;
+	struct screen_write_ctx		 ctx;
+	struct window_choose_mode_item	*item;
+	size_t				 input_len;
+	u_int				 items, n;
+	int				 idx, keys;
+
+	keys = options_get_number(wp->window->options, "mode-keys");
+	if (keys == MODEKEY_VI) {
+		key = window_choose_translate_key(key);
+		if (key == KEYC_NONE)
+			return;
+	}
+	items = data->list_size;
+
+	if (data->input_type == WINDOW_CHOOSE_GOTO_ITEM) {
+		switch (key) {
+		case '\003': 
+		case '\033': 
+		case 'q':
+			data->input_type = WINDOW_CHOOSE_NORMAL;
+			window_choose_redraw_screen(wp);
+			break;
+		case '\n':
+		case '\r':
+			n = strtonum(data->input_str, 0, INT_MAX, NULL);
+			if (n > items - 1) {
+				data->input_type = WINDOW_CHOOSE_NORMAL;
+				window_choose_redraw_screen(wp);
+				break;
+			}
+			window_choose_fire_callback(wp, data->list[n].wcd);
+			break;
+		case KEYC_BSPACE:
+			input_len = strlen(data->input_str);
+			if (input_len > 0)
+				data->input_str[input_len - 1] = '\0';
+			window_choose_redraw_screen(wp);
+			break;
+		default:
+			if (key < '0' || key > '9')
+				break;
+			window_choose_prompt_input(WINDOW_CHOOSE_GOTO_ITEM,
+			    "Goto Item", wp, key);
+			break;
+		}
+		return;
+	}
+
+	switch (key) {
+	case '\003': 
+	case '\033': 
+	case 'q':
+		window_choose_fire_callback(wp, NULL);
+		break;
+	case '\n':
+	case '\r':
+	case KEYC_MOUSEDOWN1_PANE:
+		if ((item = window_choose_get_item(wp, key, m)) == NULL)
+			break;
+		window_choose_fire_callback(wp, item->wcd);
+		break;
+	case ' ':
+	case KEYC_MOUSEDOWN3_PANE:
+		if ((item = window_choose_get_item(wp, key, m)) == NULL)
+			break;
+		if (item->state & TREE_EXPANDED) {
+			window_choose_collapse(wp, item->wcd->tree_session,
+			    data->selected);
+		} else {
+			window_choose_expand(wp, item->wcd->tree_session,
+			    data->selected);
+		}
+		window_choose_redraw_screen(wp);
+		break;
+	case KEYC_LEFT:
+		if ((item = window_choose_get_item(wp, key, m)) == NULL)
+			break;
+		if (item->state & TREE_EXPANDED) {
+			window_choose_collapse(wp, item->wcd->tree_session,
+			    data->selected);
+			window_choose_redraw_screen(wp);
+		}
+		break;
+	case KEYC_LEFT|KEYC_CTRL:
+		window_choose_collapse_all(wp);
+		break;
+	case KEYC_RIGHT:
+		if ((item = window_choose_get_item(wp, key, m)) == NULL)
+			break;
+		if (!(item->state & TREE_EXPANDED)) {
+			window_choose_expand(wp, item->wcd->tree_session,
+			    data->selected);
+			window_choose_redraw_screen(wp);
+		}
+		break;
+	case KEYC_RIGHT|KEYC_CTRL:
+		window_choose_expand_all(wp);
+		break;
+	case '\020': 
+	case KEYC_UP:
+	case KEYC_WHEELUP_PANE:
+		if (items == 0)
+			break;
+		if (data->selected == 0) {
+			data->selected = items - 1;
+			if (data->selected > screen_size_y(s) - 1)
+				data->top = items - screen_size_y(s);
+			window_choose_redraw_screen(wp);
+			break;
+		}
+		data->selected--;
+		if (data->selected < data->top)
+			window_choose_scroll_up(wp);
+		else {
+			screen_write_start(&ctx, wp, NULL);
+			window_choose_write_line(wp, &ctx,
+			    data->selected - data->top);
+			window_choose_write_line(wp, &ctx,
+			    data->selected + 1 - data->top);
+			screen_write_stop(&ctx);
+		}
+		break;
+	case '\016': 
+	case KEYC_DOWN:
+	case KEYC_WHEELDOWN_PANE:
+		if (items == 0)
+			break;
+		if (data->selected == items - 1) {
+			data->selected = 0;
+			data->top = 0;
+			window_choose_redraw_screen(wp);
+			break;
+		}
+		data->selected++;
+
+		if (data->selected < data->top + screen_size_y(s)) {
+			screen_write_start(&ctx, wp, NULL);
+			window_choose_write_line(wp, &ctx,
+			    data->selected - data->top);
+			window_choose_write_line(wp, &ctx,
+			    data->selected - 1 - data->top);
+			screen_write_stop(&ctx);
+		} else
+			window_choose_scroll_down(wp);
+		break;
+	case KEYC_UP|KEYC_CTRL:
+		if (items == 0 || data->top == 0)
+			break;
+		if (data->selected == data->top + screen_size_y(s) - 1) {
+			data->selected--;
+			window_choose_scroll_up(wp);
+			screen_write_start(&ctx, wp, NULL);
+			window_choose_write_line(wp, &ctx,
+			    screen_size_y(s) - 1);
+			screen_write_stop(&ctx);
+		} else
+			window_choose_scroll_up(wp);
+		break;
+	case KEYC_DOWN|KEYC_CTRL:
+		if (items == 0 ||
+		    data->top + screen_size_y(&data->screen) >= items)
+			break;
+		if (data->selected == data->top) {
+			data->selected++;
+			window_choose_scroll_down(wp);
+			screen_write_start(&ctx, wp, NULL);
+			window_choose_write_line(wp, &ctx, 0);
+			screen_write_stop(&ctx);
+		} else
+			window_choose_scroll_down(wp);
+		break;
+	case KEYC_PPAGE:
+		if (data->selected < screen_size_y(s)) {
+			data->selected = 0;
+			data->top = 0;
+		} else {
+			data->selected -= screen_size_y(s);
+			if (data->top < screen_size_y(s))
+				data->top = 0;
+			else
+				data->top -= screen_size_y(s);
+		}
+		window_choose_redraw_screen(wp);
+		break;
+	case KEYC_NPAGE:
+		data->selected += screen_size_y(s);
+		if (data->selected > items - 1)
+			data->selected = items - 1;
+		data->top += screen_size_y(s);
+		if (screen_size_y(s) < items) {
+			if (data->top + screen_size_y(s) > items)
+				data->top = items - screen_size_y(s);
+		} else
+			data->top = 0;
+		if (data->selected < data->top)
+			data->top = data->selected;
+		window_choose_redraw_screen(wp);
+		break;
+	case KEYC_BSPACE:
+		input_len = strlen(data->input_str);
+		if (input_len > 0)
+			data->input_str[input_len - 1] = '\0';
+		window_choose_redraw_screen(wp);
+		break;
+	case '0'|KEYC_ESCAPE:
+	case '1'|KEYC_ESCAPE:
+	case '2'|KEYC_ESCAPE:
+	case '3'|KEYC_ESCAPE:
+	case '4'|KEYC_ESCAPE:
+	case '5'|KEYC_ESCAPE:
+	case '6'|KEYC_ESCAPE:
+	case '7'|KEYC_ESCAPE:
+	case '8'|KEYC_ESCAPE:
+	case '9'|KEYC_ESCAPE:
+		key &= KEYC_MASK_KEY;
+		if (key < '0' || key > '9')
+			break;
+		window_choose_prompt_input(WINDOW_CHOOSE_GOTO_ITEM,
+		    "Goto Item", wp, key);
+		break;
+	case KEYC_HOME:
+	case '<'|KEYC_ESCAPE:
+		data->selected = 0;
+		data->top = 0;
+		window_choose_redraw_screen(wp);
+		break;
+	case 'R'|KEYC_ESCAPE:
+		data->selected = data->top;
+		window_choose_redraw_screen(wp);
+		break;
+	case 'r'|KEYC_ESCAPE:
+		data->selected = data->top + screen_size_y(s) - 1;
+		if (data->selected > items - 1)
+			data->selected = items - 1;
+		window_choose_redraw_screen(wp);
+		break;
+	case KEYC_END:
+	case '>'|KEYC_ESCAPE:
+		data->selected = items - 1;
+		if (screen_size_y(s) < items)
+			data->top = items - screen_size_y(s);
+		else
+			data->top = 0;
+		window_choose_redraw_screen(wp);
+		break;
+	default:
+		idx = window_choose_index_key(wp, key);
+		if (idx < 0 || (u_int) idx >= data->list_size)
+			break;
+		data->selected = idx;
+		window_choose_fire_callback(wp, data->list[idx].wcd);
+		break;
+	}
+}
+
+static void
+window_choose_write_line(struct window_pane *wp, struct screen_write_ctx *ctx,
+    u_int py)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct window_choose_mode_item	*item;
+	struct options			*oo = wp->window->options;
+	struct screen			*s = &data->screen;
+	struct grid_cell		 gc;
+	size_t				 last, xoff = 0;
+	char				 hdr[32], label[32];
+	int				 key;
+
+	if (data->callbackfn == NULL)
+		fatalx("called before callback assigned");
+
+	last = screen_size_y(s) - 1;
+	memcpy(&gc, &grid_default_cell, sizeof gc);
+	gc.flags |= GRID_FLAG_NOPALETTE;
+	if (data->selected == data->top + py)
+		style_apply(&gc, oo, "mode-style");
+
+	screen_write_cursormove(ctx, 0, py);
+	if (data->top + py  < data->list_size) {
+		item = &data->list[data->top + py];
+		if (item->wcd->wl != NULL &&
+		    item->wcd->wl->flags & WINLINK_ALERTFLAGS)
+			gc.attr |= GRID_ATTR_BRIGHT;
+
+		key = window_choose_key_index(wp, data->top + py);
+		if (key != -1)
+			xsnprintf(label, sizeof label, "(%c)", key);
+		else
+			xsnprintf(label, sizeof label, "(%d)", item->pos);
+		screen_write_nputs(ctx, screen_size_x(s) - 1, &gc,
+		    "%*s %s %s", data->width + 2, label,
+
+		    (item->wcd->type & TREE_SESSION) ?
+		    ((item->state & TREE_EXPANDED) ? "-" : "+") : "", item->name);
+	}
+	while (s->cx < screen_size_x(s) - 1)
+		screen_write_putc(ctx, &gc, ' ');
+
+	if (data->input_type != WINDOW_CHOOSE_NORMAL) {
+		style_apply(&gc, oo, "mode-style");
+
+		xoff = xsnprintf(hdr, sizeof hdr,
+			"%s: %s", data->input_prompt, data->input_str);
+		screen_write_cursormove(ctx, 0, last);
+		screen_write_puts(ctx, &gc, "%s", hdr);
+		screen_write_cursormove(ctx, xoff, py);
+		memcpy(&gc, &grid_default_cell, sizeof gc);
+	}
+
+}
+
+static int
+window_choose_key_index(struct window_pane *wp, u_int idx)
+{
+	const char	*ptr;
+	int		 keys;
+
+	keys = options_get_number(wp->window->options, "mode-keys");
+	if (keys == MODEKEY_VI)
+		ptr = window_choose_keys_vi;
+	else
+		ptr = window_choose_keys_emacs;
+	for (; *ptr != '\0'; ptr++) {
+		if (idx-- == 0)
+			return (*ptr);
+	}
+	return (-1);
+}
+
+static int
+window_choose_index_key(struct window_pane *wp, key_code key)
+{
+	const char	*ptr;
+	int		 keys;
+	u_int		 idx = 0;
+
+	keys = options_get_number(wp->window->options, "mode-keys");
+	if (keys == MODEKEY_VI)
+		ptr = window_choose_keys_vi;
+	else
+		ptr = window_choose_keys_emacs;
+	for (; *ptr != '\0'; ptr++) {
+		if (key == (key_code)*ptr)
+			return (idx);
+		idx++;
+	}
+	return (-1);
+}
+
+static void
+window_choose_redraw_screen(struct window_pane *wp)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct screen			*s = &data->screen;
+	struct screen_write_ctx	 	 ctx;
+	u_int				 i;
+
+	screen_write_start(&ctx, wp, NULL);
+	for (i = 0; i < screen_size_y(s); i++)
+		window_choose_write_line(wp, &ctx, i);
+	screen_write_stop(&ctx);
+}
+
+static void
+window_choose_scroll_up(struct window_pane *wp)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct screen_write_ctx		 ctx;
+
+	if (data->top == 0)
+		return;
+	data->top--;
+
+	screen_write_start(&ctx, wp, NULL);
+	screen_write_cursormove(&ctx, 0, 0);
+	screen_write_insertline(&ctx, 1, 8);
+	window_choose_write_line(wp, &ctx, 0);
+	if (screen_size_y(&data->screen) > 1)
+		window_choose_write_line(wp, &ctx, 1);
+	screen_write_stop(&ctx);
+}
+
+static void
+window_choose_scroll_down(struct window_pane *wp)
+{
+	struct window_choose_mode_data	*data = wp->modedata;
+	struct screen			*s = &data->screen;
+	struct screen_write_ctx		 ctx;
+
+	if (data->top >= data->list_size)
+		return;
+	data->top++;
+
+	screen_write_start(&ctx, wp, NULL);
+	screen_write_cursormove(&ctx, 0, 0);
+	screen_write_deleteline(&ctx, 1, 8);
+	window_choose_write_line(wp, &ctx, screen_size_y(s) - 1);
+	if (screen_size_y(&data->screen) > 1)
+		window_choose_write_line(wp, &ctx, screen_size_y(s) - 2);
+	screen_write_stop(&ctx);
+}
+
+struct window_choose_data *
+window_choose_add_session(struct window_pane *wp, struct client *c,
+    struct session *s, const char *template, const char *action, u_int idx)
+{
+	struct window_choose_data	*wcd;
+
+	wcd = window_choose_data_create(TREE_SESSION, c, c->session);
+	wcd->idx = s->id;
+
+	wcd->tree_session = s;
+	wcd->tree_session->references++;
+
+	wcd->ft_template = xstrdup(template);
+	format_add(wcd->ft, "line", "%u", idx);
+	format_defaults(wcd->ft, NULL, s, NULL, NULL);
+
+	wcd->command = cmd_template_replace(action, s->name, 1);
+
+	window_choose_add(wp, wcd);
+
+	return (wcd);
+}
+
+struct window_choose_data *
+window_choose_add_window(struct window_pane *wp, struct client *c,
+    struct session *s, struct winlink *wl, const char *template,
+    const char *action, u_int idx)
+{
+	struct window_choose_data	*wcd;
+	char				*expanded;
+
+	wcd = window_choose_data_create(TREE_WINDOW, c, c->session);
+	wcd->idx = wl->idx;
+
+	wcd->wl = wl;
+
+	wcd->tree_session = s;
+	wcd->tree_session->references++;
+
+	wcd->ft_template = xstrdup(template);
+	format_add(wcd->ft, "line", "%u", idx);
+	format_defaults(wcd->ft, NULL, s, wl, NULL);
+
+	xasprintf(&expanded, "%s:%d", s->name, wl->idx);
+	wcd->command = cmd_template_replace(action, expanded, 1);
+	free(expanded);
+
+	window_choose_add(wp, wcd);
+
+	return (wcd);
+}
 
 <code block>
-
-
-
-
-#include <sys/types.h>
-
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#include "tmux.h"
-
-
-
-RB_HEAD(environ, environ_entry);
-static int environ_cmp(struct environ_entry *, struct environ_entry *);
-RB_GENERATE_STATIC(environ, environ_entry, entry, environ_cmp);
-
-static int
-environ_cmp(struct environ_entry *envent1, struct environ_entry *envent2)
-{
-	return (strcmp(envent1->name, envent2->name));
-}
-
-
-struct environ *
-environ_create(void)
-{
-	struct environ	*env;
-
-	env = xcalloc(1, sizeof *env);
-	RB_INIT(env);
-
-	return (env);
-}
-
-
-void
-environ_free(struct environ *env)
-{
-	struct environ_entry	*envent, *envent1;
-
-	RB_FOREACH_SAFE(envent, environ, env, envent1) {
-		RB_REMOVE(environ, env, envent);
-		free(envent->name);
-		free(envent->value);
-		free(envent);
-	}
-	free(env);
-}
-
-struct environ_entry *
-environ_first(struct environ *env)
-{
-	return (RB_MIN(environ, env));
-}
-
-struct environ_entry *
-environ_next(struct environ_entry *envent)
-{
-	return (RB_NEXT(environ, env, envent));
-}
-
-
-void
-environ_copy(struct environ *srcenv, struct environ *dstenv)
-{
-	struct environ_entry	*envent;
-
-	RB_FOREACH(envent, environ, srcenv) {
-		if (envent->value == NULL)
-			environ_clear(dstenv, envent->name);
-		else
-			environ_set(dstenv, envent->name, "%s", envent->value);
-	}
-}
-
-
-struct environ_entry *
-environ_find(struct environ *env, const char *name)
-{
-	struct environ_entry	envent;
-
-	envent.name = (char *) name;
-	return (RB_FIND(environ, env, &envent));
-}
-
-
-void
-environ_set(struct environ *env, const char *name, const char *fmt, ...)
-{
-	struct environ_entry	*envent;
-	va_list			 ap;
-
-	va_start(ap, fmt);
-	if ((envent = environ_find(env, name)) != NULL) {
-		free(envent->value);
-		xvasprintf(&envent->value, fmt, ap);
-	} else {
-		envent = xmalloc(sizeof *envent);
-		envent->name = xstrdup(name);
-		xvasprintf(&envent->value, fmt, ap);
-		RB_INSERT(environ, env, envent);
-	}
-	va_end(ap);
-}
-
-
-void
-environ_clear(struct environ *env, const char *name)
-{
-	struct environ_entry	*envent;
-
-	if ((envent = environ_find(env, name)) != NULL) {
-		free(envent->value);
-		envent->value = NULL;
-	} else {
-		envent = xmalloc(sizeof *envent);
-		envent->name = xstrdup(name);
-		envent->value = NULL;
-		RB_INSERT(environ, env, envent);
-	}
-}
-
-
-void
-environ_put(struct environ *env, const char *var)
-{
-	char	*name, *value;
-
-	value = strchr(var, '=');
-	if (value == NULL)
-		return;
-	value++;
-
-	name = xstrdup(var);
-	name[strcspn(name, "=")] = '\0';
-
-	environ_set(env, name, "%s", value);
-	free(name);
-}
-
-
-void
-environ_unset(struct environ *env, const char *name)
-{
-	struct environ_entry	*envent;
-
-	if ((envent = environ_find(env, name)) == NULL)
-		return;
-	RB_REMOVE(environ, env, envent);
-	free(envent->name);
-	free(envent->value);
-	free(envent);
-}
-
-
-void
-environ_update(struct options *oo, struct environ *src, struct environ *dst)
-{
-	struct environ_entry	*envent;
-	struct options_entry	*o;
-	u_int			 size, idx;
-	const char		*value;
-
-	o = options_get(oo, "update-environment");
-	if (o == NULL || options_array_size(o, &size) == -1)
-		return;
-	for (idx = 0; idx < size; idx++) {
-		value = options_array_get(o, idx);
-		if (value == NULL)
-			continue;
-		if ((envent = environ_find(src, value)) == NULL)
-			environ_clear(dst, value);
-		else
-			environ_set(dst, envent->name, "%s", envent->value);
-	}
-}
-
-
-void
-environ_push(struct environ *env)
-{
-	struct environ_entry	*envent;
-
-	environ = xcalloc(1, sizeof *environ);
-	RB_FOREACH(envent, environ, env) {
-		if (envent->value != NULL && *envent->name != '\0')
-			setenv(envent->name, envent->value, 1);
-	}
-}
-
-
-void
-environ_log(struct environ *env, const char *prefix)
-{
-	struct environ_entry	*envent;
-
-	RB_FOREACH(envent, environ, env) {
-		if (envent->value != NULL && *envent->name != '\0') {
-			log_debug("%s%s=%s", prefix, envent->name,
-			    envent->value);
-		}
-	}
-}
-
-
-struct environ *
-environ_for_session(struct session *s)
-{
-	struct environ	*env;
-	const char	*value;
-	int		 idx;
-
-	env = environ_create();
-	environ_copy(global_environ, env);
-	if (s != NULL)
-		environ_copy(s->environ, env);
-
-	value = options_get_string(global_options, "default-terminal");
-	environ_set(env, "TERM", "%s", value);
-
-	if (s != NULL)
-		idx = s->id;
-	else
-		idx = -1;
-	environ_set(env, "TMUX", "%s,%ld,%d", socket_path, (long)getpid(), idx);
-
-	return (env);
-}
+
+
+
+
+#include <sys/types.h>
+
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "tmux.h"
+
+
+
+RB_HEAD(environ, environ_entry);
+static int environ_cmp(struct environ_entry *, struct environ_entry *);
+RB_GENERATE_STATIC(environ, environ_entry, entry, environ_cmp);
+
+static int
+environ_cmp(struct environ_entry *envent1, struct environ_entry *envent2)
+{
+	return (strcmp(envent1->name, envent2->name));
+}
+
+
+struct environ *
+environ_create(void)
+{
+	struct environ	*env;
+
+	env = xcalloc(1, sizeof *env);
+	RB_INIT(env);
+
+	return (env);
+}
+
+
+void
+environ_free(struct environ *env)
+{
+	struct environ_entry	*envent, *envent1;
+
+	RB_FOREACH_SAFE(envent, environ, env, envent1) {
+		RB_REMOVE(environ, env, envent);
+		free(envent->name);
+		free(envent->value);
+		free(envent);
+	}
+	free(env);
+}
+
+struct environ_entry *
+environ_first(struct environ *env)
+{
+	return (RB_MIN(environ, env));
+}
+
+struct environ_entry *
+environ_next(struct environ_entry *envent)
+{
+	return (RB_NEXT(environ, env, envent));
+}
+
+
+void
+environ_copy(struct environ *srcenv, struct environ *dstenv)
+{
+	struct environ_entry	*envent;
+
+	RB_FOREACH(envent, environ, srcenv) {
+		if (envent->value == NULL)
+			environ_clear(dstenv, envent->name);
+		else
+			environ_set(dstenv, envent->name, "%s", envent->value);
+	}
+}
+
+
+struct environ_entry *
+environ_find(struct environ *env, const char *name)
+{
+	struct environ_entry	envent;
+
+	envent.name = (char *) name;
+	return (RB_FIND(environ, env, &envent));
+}
+
+
+void
+environ_set(struct environ *env, const char *name, const char *fmt, ...)
+{
+	struct environ_entry	*envent;
+	va_list			 ap;
+
+	va_start(ap, fmt);
+	if ((envent = environ_find(env, name)) != NULL) {
+		free(envent->value);
+		xvasprintf(&envent->value, fmt, ap);
+	} else {
+		envent = xmalloc(sizeof *envent);
+		envent->name = xstrdup(name);
+		xvasprintf(&envent->value, fmt, ap);
+		RB_INSERT(environ, env, envent);
+	}
+	va_end(ap);
+}
+
+
+void
+environ_clear(struct environ *env, const char *name)
+{
+	struct environ_entry	*envent;
+
+	if ((envent = environ_find(env, name)) != NULL) {
+		free(envent->value);
+		envent->value = NULL;
+	} else {
+		envent = xmalloc(sizeof *envent);
+		envent->name = xstrdup(name);
+		envent->value = NULL;
+		RB_INSERT(environ, env, envent);
+	}
+}
+
+
+void
+environ_put(struct environ *env, const char *var)
+{
+	char	*name, *value;
+
+	value = strchr(var, '=');
+	if (value == NULL)
+		return;
+	value++;
+
+	name = xstrdup(var);
+	name[strcspn(name, "=")] = '\0';
+
+	environ_set(env, name, "%s", value);
+	free(name);
+}
+
+
+void
+environ_unset(struct environ *env, const char *name)
+{
+	struct environ_entry	*envent;
+
+	if ((envent = environ_find(env, name)) == NULL)
+		return;
+	RB_REMOVE(environ, env, envent);
+	free(envent->name);
+	free(envent->value);
+	free(envent);
+}
+
+
+void
+environ_update(struct options *oo, struct environ *src, struct environ *dst)
+{
+	struct environ_entry	*envent;
+	struct options_entry	*o;
+	u_int			 size, idx;
+	const char		*value;
+
+	o = options_get(oo, "update-environment");
+	if (o == NULL || options_array_size(o, &size) == -1)
+		return;
+	for (idx = 0; idx < size; idx++) {
+		value = options_array_get(o, idx);
+		if (value == NULL)
+			continue;
+		if ((envent = environ_find(src, value)) == NULL)
+			environ_clear(dst, value);
+		else
+			environ_set(dst, envent->name, "%s", envent->value);
+	}
+}
+
+
+void
+environ_push(struct environ *env)
+{
+	struct environ_entry	*envent;
+
+	environ = xcalloc(1, sizeof *environ);
+	RB_FOREACH(envent, environ, env) {
+		if (envent->value != NULL && *envent->name != '\0')
+			setenv(envent->name, envent->value, 1);
+	}
+}
+
+
+void
+environ_log(struct environ *env, const char *prefix)
+{
+	struct environ_entry	*envent;
+
+	RB_FOREACH(envent, environ, env) {
+		if (envent->value != NULL && *envent->name != '\0') {
+			log_debug("%s%s=%s", prefix, envent->name,
+			    envent->value);
+		}
+	}
+}
+
+
+struct environ *
+environ_for_session(struct session *s, int no_TERM)
+{
+	struct environ	*env;
+	const char	*value;
+	int		 idx;
+
+	env = environ_create();
+	environ_copy(global_environ, env);
+	if (s != NULL)
+		environ_copy(s->environ, env);
+
+	if (!no_TERM) {
+		value = options_get_string(global_options, "default-terminal");
+		environ_set(env, "TERM", "%s", value);
+	}
+
+	if (s != NULL)
+		idx = s->id;
+	else
+		idx = -1;
+	environ_set(env, "TMUX", "%s,%ld,%d", socket_path, (long)getpid(), idx);
+
+	return (env);
+}
 
 <code block>
-
-
-
-
-#include <sys/types.h>
-
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "tmux.h"
-
-struct mode_tree_item;
-TAILQ_HEAD(mode_tree_list, mode_tree_item);
-
-struct mode_tree_data {
-	int			  dead;
-	u_int			  references;
-
-	struct window_pane	 *wp;
-	void			 *modedata;
-
-	const char		**sort_list;
-	u_int			  sort_size;
-	u_int			  sort_type;
-
-	void			 (*buildcb)(void *, u_int, uint64_t *,
-				     const char *);
-	struct screen		*(*drawcb)(void *, void *, u_int, u_int);
-	int			 (*searchcb)(void*, void *, const char *);
-
-	struct mode_tree_list	  children;
-	struct mode_tree_list	  saved;
-
-	struct mode_tree_line	 *line_list;
-	u_int			  line_size;
-
-	u_int			  depth;
-
-	u_int			  width;
-	u_int			  height;
-
-	u_int			  offset;
-	u_int			  current;
-
-	struct screen		  screen;
-
-	int			  preview;
-	char			 *search;
-	char			 *filter;
-};
-
-struct mode_tree_item {
-	struct mode_tree_item		*parent;
-	void				*itemdata;
-	u_int				 line;
-
-	uint64_t			 tag;
-	const char			*name;
-	const char			*text;
-
-	int				 expanded;
-	int				 tagged;
-
-	struct mode_tree_list		 children;
-	TAILQ_ENTRY(mode_tree_item)	 entry;
-};
-
-struct mode_tree_line {
-	struct mode_tree_item		*item;
-	u_int				 depth;
-	int				 last;
-	int				 flat;
-};
-
-static void mode_tree_free_items(struct mode_tree_list *);
-
-static struct mode_tree_item *
-mode_tree_find_item(struct mode_tree_list *mtl, uint64_t tag)
-{
-	struct mode_tree_item	*mti, *child;
-
-	TAILQ_FOREACH(mti, mtl, entry) {
-		if (mti->tag == tag)
-			return (mti);
-		child = mode_tree_find_item(&mti->children, tag);
-		if (child != NULL)
-			return (child);
-	}
-	return (NULL);
-}
-
-static void
-mode_tree_free_item(struct mode_tree_item *mti)
-{
-	mode_tree_free_items(&mti->children);
-
-	free((void *)mti->name);
-	free((void *)mti->text);
-
-	free(mti);
-}
-
-static void
-mode_tree_free_items(struct mode_tree_list *mtl)
-{
-	struct mode_tree_item	*mti, *mti1;
-
-	TAILQ_FOREACH_SAFE(mti, mtl, entry, mti1) {
-		TAILQ_REMOVE(mtl, mti, entry);
-		mode_tree_free_item(mti);
-	}
-}
-
-static void
-mode_tree_check_selected(struct mode_tree_data *mtd)
-{
-
-	if (mtd->current > mtd->height - 1)
-		mtd->offset = mtd->current - mtd->height + 1;
-}
-
-static void
-mode_tree_clear_lines(struct mode_tree_data *mtd)
-{
-	free(mtd->line_list);
-	mtd->line_list = NULL;
-	mtd->line_size = 0;
-}
-
-static void
-mode_tree_build_lines(struct mode_tree_data *mtd,
-    struct mode_tree_list *mtl, u_int depth)
-{
-	struct mode_tree_item	*mti;
-	struct mode_tree_line	*line;
-	u_int			 i;
-	int			 flat = 1;
-
-	mtd->depth = depth;
-	TAILQ_FOREACH(mti, mtl, entry) {
-		mtd->line_list = xreallocarray(mtd->line_list,
-		    mtd->line_size + 1, sizeof *mtd->line_list);
-
-		line = &mtd->line_list[mtd->line_size++];
-		line->item = mti;
-		line->depth = depth;
-		line->last = (mti == TAILQ_LAST(mtl, mode_tree_list));
-
-		mti->line = (mtd->line_size - 1);
-		if (!TAILQ_EMPTY(&mti->children))
-			flat = 0;
-		if (mti->expanded)
-			mode_tree_build_lines(mtd, &mti->children, depth + 1);
-	}
-	TAILQ_FOREACH(mti, mtl, entry) {
-		for (i = 0; i < mtd->line_size; i++) {
-			line = &mtd->line_list[i];
-			if (line->item == mti)
-				line->flat = flat;
-		}
-	}
-}
-
-static void
-mode_tree_clear_tagged(struct mode_tree_list *mtl)
-{
-	struct mode_tree_item	*mti;
-
-	TAILQ_FOREACH(mti, mtl, entry) {
-		mti->tagged = 0;
-		mode_tree_clear_tagged(&mti->children);
-	}
-}
-
-static void
-mode_tree_set_current(struct mode_tree_data *mtd, uint64_t tag)
-{
-	u_int	i;
-
-	for (i = 0; i < mtd->line_size; i++) {
-		if (mtd->line_list[i].item->tag == tag)
-			break;
-	}
-	if (i != mtd->line_size) {
-		mtd->current = i;
-		if (mtd->current > mtd->height - 1)
-			mtd->offset = mtd->current - mtd->height + 1;
-		else
-			mtd->offset = 0;
-	} else {
-		mtd->current = 0;
-		mtd->offset = 0;
-	}
-}
-
-void
-mode_tree_up(struct mode_tree_data *mtd, int wrap)
-{
-	if (mtd->current == 0) {
-		if (wrap) {
-			mtd->current = mtd->line_size - 1;
-			if (mtd->line_size >= mtd->height)
-				mtd->offset = mtd->line_size - mtd->height;
-		}
-	} else {
-		mtd->current--;
-		if (mtd->current < mtd->offset)
-			mtd->offset--;
-	}
-}
-
-void
-mode_tree_down(struct mode_tree_data *mtd, int wrap)
-{
-	if (mtd->current == mtd->line_size - 1) {
-		if (wrap) {
-			mtd->current = 0;
-			mtd->offset = 0;
-		}
-	} else {
-		mtd->current++;
-		if (mtd->current > mtd->offset + mtd->height - 1)
-			mtd->offset++;
-	}
-}
-
-void *
-mode_tree_get_current(struct mode_tree_data *mtd)
-{
-	return (mtd->line_list[mtd->current].item->itemdata);
-}
-
-u_int
-mode_tree_count_tagged(struct mode_tree_data *mtd)
-{
-	struct mode_tree_item	*mti;
-	u_int			 i, tagged;
-
-	tagged = 0;
-	for (i = 0; i < mtd->line_size; i++) {
-		mti = mtd->line_list[i].item;
-		if (mti->tagged)
-			tagged++;
-	}
-	return (tagged);
-}
-
-void
-mode_tree_each_tagged(struct mode_tree_data *mtd, void (*cb)(void *, void *,
-    key_code), key_code key, int current)
-{
-	struct mode_tree_item	*mti;
-	u_int			 i;
-	int			 fired;
-
-	fired = 0;
-	for (i = 0; i < mtd->line_size; i++) {
-		mti = mtd->line_list[i].item;
-		if (mti->tagged) {
-			fired = 1;
-			cb(mtd->modedata, mti->itemdata, key);
-		}
-	}
-	if (!fired && current) {
-		mti = mtd->line_list[mtd->current].item;
-		cb(mtd->modedata, mti->itemdata, key);
-	}
-}
-
-struct mode_tree_data *
-mode_tree_start(struct window_pane *wp, struct args *args,
-    void (*buildcb)(void *, u_int, uint64_t *, const char *),
-    struct screen *(*drawcb)(void *, void *, u_int, u_int),
-    int (*searchcb)(void *, void *, const char *), void *modedata,
-    const char **sort_list, u_int sort_size, struct screen **s)
-{
-	struct mode_tree_data	*mtd;
-	const char		*sort;
-	u_int			 i;
-
-	mtd = xcalloc(1, sizeof *mtd);
-	mtd->references = 1;
-
-	mtd->wp = wp;
-	mtd->modedata = modedata;
-
-	mtd->sort_list = sort_list;
-	mtd->sort_size = sort_size;
-	mtd->sort_type = 0;
-
-	mtd->preview = !args_has(args, 'N');
-
-	sort = args_get(args, 'O');
-	if (sort != NULL) {
-		for (i = 0; i < sort_size; i++) {
-			if (strcasecmp(sort, sort_list[i]) == 0)
-				mtd->sort_type = i;
-		}
-	}
-
-	if (args_has(args, 'f'))
-		mtd->filter = xstrdup(args_get(args, 'f'));
-	else
-		mtd->filter = NULL;
-
-	mtd->buildcb = buildcb;
-	mtd->drawcb = drawcb;
-	mtd->searchcb = searchcb;
-
-	TAILQ_INIT(&mtd->children);
-
-	*s = &mtd->screen;
-	screen_init(*s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
-	(*s)->mode &= ~MODE_CURSOR;
-
-	return (mtd);
-}
-
-void
-mode_tree_build(struct mode_tree_data *mtd)
-{
-	struct screen	*s = &mtd->screen;
-	uint64_t	 tag;
-
-	if (mtd->line_list != NULL)
-		tag = mtd->line_list[mtd->current].item->tag;
-	else
-		tag = 0;
-
-	TAILQ_CONCAT(&mtd->saved, &mtd->children, entry);
-	TAILQ_INIT(&mtd->children);
-
-	mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, mtd->filter);
-	if (TAILQ_EMPTY(&mtd->children))
-		mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, NULL);
-
-	mode_tree_free_items(&mtd->saved);
-	TAILQ_INIT(&mtd->saved);
-
-	mode_tree_clear_lines(mtd);
-	mode_tree_build_lines(mtd, &mtd->children, 0);
-
-	mode_tree_set_current(mtd, tag);
-
-	mtd->width = screen_size_x(s);
-	if (mtd->preview) {
-		mtd->height = (screen_size_y(s) / 3) * 2;
-		if (mtd->height > mtd->line_size)
-			mtd->height = screen_size_y(s) / 2;
-		if (mtd->height < 10)
-			mtd->height = screen_size_y(s);
-		if (screen_size_y(s) - mtd->height < 2)
-			mtd->height = screen_size_y(s);
-	} else
-		mtd->height = screen_size_y(s);
-	mode_tree_check_selected(mtd);
-}
-
-static void
-mode_tree_remove_ref(struct mode_tree_data *mtd)
-{
-	if (--mtd->references == 0)
-		free(mtd);
-}
-
-void
-mode_tree_free(struct mode_tree_data *mtd)
-{
-	mode_tree_free_items(&mtd->children);
-	mode_tree_clear_lines(mtd);
-	screen_free(&mtd->screen);
-
-	free(mtd->search);
-	free(mtd->filter);
-
-	mtd->dead = 1;
-	mode_tree_remove_ref(mtd);
-}
-
-void
-mode_tree_resize(struct mode_tree_data *mtd, u_int sx, u_int sy)
-{
-	struct screen	*s = &mtd->screen;
-
-	screen_resize(s, sx, sy, 0);
-
-	mode_tree_build(mtd);
-	mode_tree_draw(mtd);
-
-	mtd->wp->flags |= PANE_REDRAW;
-}
-
-struct mode_tree_item *
-mode_tree_add(struct mode_tree_data *mtd, struct mode_tree_item *parent,
-    void *itemdata, uint64_t tag, const char *name, const char *text,
-    int expanded)
-{
-	struct mode_tree_item	*mti, *saved;
-
-	log_debug("%s: %llu, %s %s", __func__, (unsigned long long)tag,
-	    name, text);
-
-	mti = xcalloc(1, sizeof *mti);
-	mti->parent = parent;
-	mti->itemdata = itemdata;
-
-	mti->tag = tag;
-	mti->name = xstrdup(name);
-	mti->text = xstrdup(text);
-
-	saved = mode_tree_find_item(&mtd->saved, tag);
-	if (saved != NULL) {
-		if (parent == NULL || (parent != NULL && parent->expanded))
-			mti->tagged = saved->tagged;
-		mti->expanded = saved->expanded;
-	} else if (expanded == -1)
-		mti->expanded = 1;
-	else
-		mti->expanded = expanded;
-
-	TAILQ_INIT(&mti->children);
-
-	if (parent != NULL)
-		TAILQ_INSERT_TAIL(&parent->children, mti, entry);
-	else
-		TAILQ_INSERT_TAIL(&mtd->children, mti, entry);
-
-	return (mti);
-}
-
-void
-mode_tree_remove(struct mode_tree_data *mtd, struct mode_tree_item *mti)
-{
-	struct mode_tree_item	*parent = mti->parent;
-
-	if (parent != NULL)
-		TAILQ_REMOVE(&parent->children, mti, entry);
-	else
-		TAILQ_REMOVE(&mtd->children, mti, entry);
-	mode_tree_free_item(mti);
-}
-
-void
-mode_tree_draw(struct mode_tree_data *mtd)
-{
-	struct window_pane	*wp = mtd->wp;
-	struct screen		*s = &mtd->screen, *box = NULL;
-	struct mode_tree_line	*line;
-	struct mode_tree_item	*mti;
-	struct options		*oo = wp->window->options;
-	struct screen_write_ctx	 ctx;
-	struct grid_cell	 gc0, gc;
-	u_int			 w, h, i, j, sy, box_x, box_y;
-	char			*text, *start, key[7];
-	const char		*tag, *symbol;
-	size_t			 size;
-	int			 keylen;
-
-	if (mtd->line_size == 0)
-		return;
-
-	memcpy(&gc0, &grid_default_cell, sizeof gc0);
-	memcpy(&gc, &grid_default_cell, sizeof gc);
-	style_apply(&gc, oo, "mode-style");
-
-	w = mtd->width;
-	h = mtd->height;
-
-	screen_write_start(&ctx, NULL, s);
-	screen_write_clearscreen(&ctx, 8);
-
-	if (mtd->line_size > 10)
-		keylen = 6;
-	else
-		keylen = 4;
-
-	for (i = 0; i < mtd->line_size; i++) {
-		if (i < mtd->offset)
-			continue;
-		if (i > mtd->offset + h - 1)
-			break;
-
-		line = &mtd->line_list[i];
-		mti = line->item;
-
-		screen_write_cursormove(&ctx, 0, i - mtd->offset);
-
-		if (i < 10)
-			snprintf(key, sizeof key, "(%c)  ", '0' + i);
-		else if (i < 36)
-			snprintf(key, sizeof key, "(M-%c)", 'a' + (i - 10));
-		else
-			*key = '\0';
-
-		if (line->flat)
-			symbol = "";
-		else if (TAILQ_EMPTY(&mti->children))
-			symbol = "  ";
-		else if (mti->expanded)
-			symbol = "- ";
-		else
-			symbol = "+ ";
-
-		if (line->depth == 0)
-			start = xstrdup(symbol);
-		else {
-			size = (4 * line->depth) + 32;
-
-			start = xcalloc(1, size);
-			for (j = 1; j < line->depth; j++) {
-				if (mti->parent != NULL &&
-				    mtd->line_list[mti->parent->line].last)
-					strlcat(start, "    ", size);
-				else
-					strlcat(start, "\001x\001   ", size);
-			}
-			if (line->last)
-				strlcat(start, "\001mq\001> ", size);
-			else
-				strlcat(start, "\001tq\001> ", size);
-			strlcat(start, symbol, size);
-		}
-
-		if (mti->tagged)
-			tag = "*";
-		else
-			tag = "";
-		xasprintf(&text, "%-*s%s%s%s: %s", keylen, key, start,
-		    mti->name, tag, mti->text);
-		free(start);
-
-		if (mti->tagged) {
-			gc.attr ^= GRID_ATTR_BRIGHT;
-			gc0.attr ^= GRID_ATTR_BRIGHT;
-		}
-
-		if (i != mtd->current) {
-			screen_write_puts(&ctx, &gc0, "%.*s", w, text);
-			screen_write_clearendofline(&ctx, 8);
-		} else
-			screen_write_puts(&ctx, &gc, "%-*.*s", w, w, text);
-		free(text);
-
-		if (mti->tagged) {
-			gc.attr ^= GRID_ATTR_BRIGHT;
-			gc0.attr ^= GRID_ATTR_BRIGHT;
-		}
-	}
-
-	sy = screen_size_y(s);
-	if (!mtd->preview || sy <= 4 || h <= 4 || sy - h <= 4 || w <= 4) {
-		screen_write_stop(&ctx);
-		return;
-	}
-
-	line = &mtd->line_list[mtd->current];
-	mti = line->item;
-
-	screen_write_cursormove(&ctx, 0, h);
-	screen_write_box(&ctx, w, sy - h);
-
-	xasprintf(&text, " %s (sort: %s) ", mti->name,
-	    mtd->sort_list[mtd->sort_type]);
-	if (w - 2 >= strlen(text)) {
-		screen_write_cursormove(&ctx, 1, h);
-		screen_write_puts(&ctx, &gc0, "%s", text);
-	}
-	free(text);
-
-	box_x = w - 4;
-	box_y = sy - h - 2;
-
-	if (box_x != 0 && box_y != 0)
-		box = mtd->drawcb(mtd->modedata, mti->itemdata, box_x, box_y);
-	if (box != NULL) {
-		screen_write_cursormove(&ctx, 2, h + 1);
-		screen_write_copy(&ctx, box, 0, 0, box_x, box_y, NULL, NULL);
-
-		screen_free(box);
-	}
-
-	screen_write_stop(&ctx);
-}
-
-static struct mode_tree_item *
-mode_tree_search_for(struct mode_tree_data *mtd)
-{
-	struct mode_tree_item	*mti, *last, *next;
-
-	if (mtd->search == NULL)
-		return (NULL);
-
-	mti = last = mtd->line_list[mtd->current].item;
-	for (;;) {
-		if (!TAILQ_EMPTY(&mti->children))
-			mti = TAILQ_FIRST(&mti->children);
-		else if ((next = TAILQ_NEXT(mti, entry)) != NULL)
-			mti = next;
-		else {
-			for (;;) {
-				mti = mti->parent;
-				if (mti == NULL)
-					break;
-				if ((next = TAILQ_NEXT(mti, entry)) != NULL) {
-					mti = next;
-					break;
-				}
-			}
-		}
-		if (mti == NULL)
-			mti = TAILQ_FIRST(&mtd->children);
-		if (mti == last)
-			break;
-
-		if (mtd->searchcb == NULL) {
-			if (strstr(mti->name, mtd->search) != NULL)
-				return (mti);
-			continue;
-		}
-		if (mtd->searchcb(mtd->modedata, mti->itemdata, mtd->search))
-			return (mti);
-	}
-	return (NULL);
-}
-
-static void
-mode_tree_search_set(struct mode_tree_data *mtd)
-{
-	struct mode_tree_item	*mti, *loop;
-	uint64_t		 tag;
-
-	mti = mode_tree_search_for(mtd);
-	if (mti == NULL)
-		return;
-	tag = mti->tag;
-
-	loop = mti->parent;
-	while (loop != NULL) {
-		loop->expanded = 1;
-		loop = loop->parent;
-	}
-
-	mode_tree_build(mtd);
-	mode_tree_set_current(mtd, tag);
-	mode_tree_draw(mtd);
-	mtd->wp->flags |= PANE_REDRAW;
-}
-
-static int
-mode_tree_search_callback(__unused struct client *c, void *data, const char *s,
-    __unused int done)
-{
-	struct mode_tree_data	*mtd = data;
-
-	if (mtd->dead)
-		return (0);
-
-	free(mtd->search);
-	if (s == NULL || *s == '\0') {
-		mtd->search = NULL;
-		return (0);
-	}
-	mtd->search = xstrdup(s);
-	mode_tree_search_set(mtd);
-
-	return (0);
-}
-
-static void
-mode_tree_search_free(void *data)
-{
-	mode_tree_remove_ref(data);
-}
-
-static int
-mode_tree_filter_callback(__unused struct client *c, void *data, const char *s,
-    __unused int done)
-{
-	struct mode_tree_data	*mtd = data;
-
-	if (mtd->dead)
-		return (0);
-
-	if (mtd->filter != NULL)
-		free(mtd->filter);
-	if (s == NULL || *s == '\0')
-		mtd->filter = NULL;
-	else
-		mtd->filter = xstrdup(s);
-
-	mode_tree_build(mtd);
-	mode_tree_draw(mtd);
-	mtd->wp->flags |= PANE_REDRAW;
-
-	return (0);
-}
-
-static void
-mode_tree_filter_free(void *data)
-{
-	mode_tree_remove_ref(data);
-}
-
-int
-mode_tree_key(struct mode_tree_data *mtd, struct client *c, key_code *key,
-    struct mouse_event *m)
-{
-	struct mode_tree_line	*line;
-	struct mode_tree_item	*current, *parent;
-	u_int			 i, x, y;
-	int			 choice;
-	key_code		 tmp;
-
-	if (*key == KEYC_MOUSEDOWN1_PANE) {
-		if (cmd_mouse_at(mtd->wp, m, &x, &y, 0) != 0) {
-			*key = KEYC_NONE;
-			return (0);
-		}
-		if (x > mtd->width || y > mtd->height) {
-			*key = KEYC_NONE;
-			return (0);
-		}
-		if (mtd->offset + y < mtd->line_size) {
-			mtd->current = mtd->offset + y;
-			*key = '\r';
-			return (0);
-		}
-	}
-
-	line = &mtd->line_list[mtd->current];
-	current = line->item;
-
-	choice = -1;
-	if (*key >= '0' && *key <= '9')
-		choice = (*key) - '0';
-	else if (((*key) & KEYC_MASK_MOD) == KEYC_ESCAPE) {
-		tmp = (*key) & KEYC_MASK_KEY;
-		if (tmp >= 'a' && tmp <= 'z')
-			choice = 10 + (tmp - 'a');
-	}
-	if (choice != -1) {
-		if ((u_int)choice > mtd->line_size - 1) {
-			*key = KEYC_NONE;
-			return (0);
-		}
-		mtd->current = choice;
-		*key = '\r';
-		return (0);
-	}
-
-	switch (*key) {
-	case 'q':
-	case '\033': 
-		return (1);
-	case KEYC_UP:
-	case 'k':
-	case KEYC_WHEELUP_PANE:
-		mode_tree_up(mtd, 1);
-		break;
-	case KEYC_DOWN:
-	case 'j':
-	case KEYC_WHEELDOWN_PANE:
-		mode_tree_down(mtd, 1);
-		break;
-	case KEYC_PPAGE:
-	case '\002': 
-		for (i = 0; i < mtd->height; i++) {
-			if (mtd->current == 0)
-				break;
-			mode_tree_up(mtd, 1);
-		}
-		break;
-	case KEYC_NPAGE:
-	case '\006': 
-		for (i = 0; i < mtd->height; i++) {
-			if (mtd->current == mtd->line_size - 1)
-				break;
-			mode_tree_down(mtd, 1);
-		}
-		break;
-	case KEYC_HOME:
-		mtd->current = 0;
-		mtd->offset = 0;
-		break;
-	case KEYC_END:
-		mtd->current = mtd->line_size - 1;
-		if (mtd->current > mtd->height - 1)
-			mtd->offset = mtd->current - mtd->height + 1;
-		else
-			mtd->offset = 0;
-		break;
-	case 't':
-
-		if (!current->tagged) {
-			parent = current->parent;
-			while (parent != NULL) {
-				parent->tagged = 0;
-				parent = parent->parent;
-			}
-			mode_tree_clear_tagged(&current->children);
-			current->tagged = 1;
-		} else
-			current->tagged = 0;
-		mode_tree_down(mtd, 0);
-		break;
-	case 'T':
-		for (i = 0; i < mtd->line_size; i++)
-			mtd->line_list[i].item->tagged = 0;
-		break;
-	case '\024': 
-		for (i = 0; i < mtd->line_size; i++) {
-			if (mtd->line_list[i].item->parent == NULL)
-				mtd->line_list[i].item->tagged = 1;
-			else
-				mtd->line_list[i].item->tagged = 0;
-		}
-		break;
-	case 'O':
-		mtd->sort_type++;
-		if (mtd->sort_type == mtd->sort_size)
-			mtd->sort_type = 0;
-		mode_tree_build(mtd);
-		break;
-	case KEYC_LEFT:
-	case '-':
-		if (line->flat || !current->expanded)
-			current = current->parent;
-		if (current == NULL)
-			mode_tree_up(mtd, 0);
-		else {
-			current->expanded = 0;
-			mtd->current = current->line;
-			mode_tree_build(mtd);
-		}
-		break;
-	case KEYC_RIGHT:
-	case '+':
-		if (line->flat || current->expanded)
-			mode_tree_down(mtd, 0);
-		else if (!line->flat) {
-			current->expanded = 1;
-			mode_tree_build(mtd);
-		}
-		break;
-	case '\023': 
-		mtd->references++;
-		status_prompt_set(c, "(search) ", "",
-		    mode_tree_search_callback, mode_tree_search_free, mtd,
-		    PROMPT_NOFORMAT);
-		break;
-	case 'n':
-		mode_tree_search_set(mtd);
-		break;
-	case 'f':
-		mtd->references++;
-		status_prompt_set(c, "(filter) ", mtd->filter,
-		    mode_tree_filter_callback, mode_tree_filter_free, mtd,
-		    PROMPT_NOFORMAT);
-		break;
-	case 'v':
-		mtd->preview = !mtd->preview;
-		mode_tree_build(mtd);
-		if (mtd->preview)
-			mode_tree_check_selected(mtd);
-		break;
-	}
-	return (0);
-}
-
-void
-mode_tree_run_command(struct client *c, struct cmd_find_state *fs,
-    const char *template, const char *name)
-{
-	struct cmdq_item	*new_item;
-	struct cmd_list		*cmdlist;
-	char			*command, *cause;
-
-	command = cmd_template_replace(template, name, 1);
-	if (command == NULL || *command == '\0') {
-		free(command);
-		return;
-	}
-
-	cmdlist = cmd_string_parse(command, NULL, 0, &cause);
-	if (cmdlist == NULL) {
-		if (cause != NULL && c != NULL) {
-			*cause = toupper((u_char)*cause);
-			status_message_set(c, "%s", cause);
-		}
-		free(cause);
-	} else {
-		new_item = cmdq_get_command(cmdlist, fs, NULL, 0);
-		cmdq_append(c, new_item);
-		cmd_list_free(cmdlist);
-	}
-
-	free(command);
-}
+
+
+
+
+#include <sys/types.h>
+
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "tmux.h"
+
+
+
+RB_HEAD(environ, environ_entry);
+static int environ_cmp(struct environ_entry *, struct environ_entry *);
+RB_GENERATE_STATIC(environ, environ_entry, entry, environ_cmp);
+
+static int
+environ_cmp(struct environ_entry *envent1, struct environ_entry *envent2)
+{
+	return (strcmp(envent1->name, envent2->name));
+}
+
+
+struct environ *
+environ_create(void)
+{
+	struct environ	*env;
+
+	env = xcalloc(1, sizeof *env);
+	RB_INIT(env);
+
+	return (env);
+}
+
+
+void
+environ_free(struct environ *env)
+{
+	struct environ_entry	*envent, *envent1;
+
+	RB_FOREACH_SAFE(envent, environ, env, envent1) {
+		RB_REMOVE(environ, env, envent);
+		free(envent->name);
+		free(envent->value);
+		free(envent);
+	}
+	free(env);
+}
+
+struct environ_entry *
+environ_first(struct environ *env)
+{
+	return (RB_MIN(environ, env));
+}
+
+struct environ_entry *
+environ_next(struct environ_entry *envent)
+{
+	return (RB_NEXT(environ, env, envent));
+}
+
+
+void
+environ_copy(struct environ *srcenv, struct environ *dstenv)
+{
+	struct environ_entry	*envent;
+
+	RB_FOREACH(envent, environ, srcenv) {
+		if (envent->value == NULL)
+			environ_clear(dstenv, envent->name);
+		else
+			environ_set(dstenv, envent->name, "%s", envent->value);
+	}
+}
+
+
+struct environ_entry *
+environ_find(struct environ *env, const char *name)
+{
+	struct environ_entry	envent;
+
+	envent.name = (char *) name;
+	return (RB_FIND(environ, env, &envent));
+}
+
+
+void
+environ_set(struct environ *env, const char *name, const char *fmt, ...)
+{
+	struct environ_entry	*envent;
+	va_list			 ap;
+
+	va_start(ap, fmt);
+	if ((envent = environ_find(env, name)) != NULL) {
+		free(envent->value);
+		xvasprintf(&envent->value, fmt, ap);
+	} else {
+		envent = xmalloc(sizeof *envent);
+		envent->name = xstrdup(name);
+		xvasprintf(&envent->value, fmt, ap);
+		RB_INSERT(environ, env, envent);
+	}
+	va_end(ap);
+}
+
+
+void
+environ_clear(struct environ *env, const char *name)
+{
+	struct environ_entry	*envent;
+
+	if ((envent = environ_find(env, name)) != NULL) {
+		free(envent->value);
+		envent->value = NULL;
+	} else {
+		envent = xmalloc(sizeof *envent);
+		envent->name = xstrdup(name);
+		envent->value = NULL;
+		RB_INSERT(environ, env, envent);
+	}
+}
+
+
+void
+environ_put(struct environ *env, const char *var)
+{
+	char	*name, *value;
+
+	value = strchr(var, '=');
+	if (value == NULL)
+		return;
+	value++;
+
+	name = xstrdup(var);
+	name[strcspn(name, "=")] = '\0';
+
+	environ_set(env, name, "%s", value);
+	free(name);
+}
+
+
+void
+environ_unset(struct environ *env, const char *name)
+{
+	struct environ_entry	*envent;
+
+	if ((envent = environ_find(env, name)) == NULL)
+		return;
+	RB_REMOVE(environ, env, envent);
+	free(envent->name);
+	free(envent->value);
+	free(envent);
+}
+
+
+void
+environ_update(struct options *oo, struct environ *src, struct environ *dst)
+{
+	struct environ_entry	*envent;
+	struct options_entry	*o;
+	u_int			 size, idx;
+	const char		*value;
+
+	o = options_get(oo, "update-environment");
+	if (o == NULL || options_array_size(o, &size) == -1)
+		return;
+	for (idx = 0; idx < size; idx++) {
+		value = options_array_get(o, idx);
+		if (value == NULL)
+			continue;
+		if ((envent = environ_find(src, value)) == NULL)
+			environ_clear(dst, value);
+		else
+			environ_set(dst, envent->name, "%s", envent->value);
+	}
+}
+
+
+void
+environ_push(struct environ *env)
+{
+	struct environ_entry	*envent;
+
+	environ = xcalloc(1, sizeof *environ);
+	RB_FOREACH(envent, environ, env) {
+		if (envent->value != NULL && *envent->name != '\0')
+			setenv(envent->name, envent->value, 1);
+	}
+}
+
+
+void
+environ_log(struct environ *env, const char *prefix)
+{
+	struct environ_entry	*envent;
+
+	RB_FOREACH(envent, environ, env) {
+		if (envent->value != NULL && *envent->name != '\0') {
+			log_debug("%s%s=%s", prefix, envent->name,
+			    envent->value);
+		}
+	}
+}
+
+
+struct environ *
+environ_for_session(struct session *s)
+{
+	struct environ	*env;
+	const char	*value;
+	int		 idx;
+
+	env = environ_create();
+	environ_copy(global_environ, env);
+	if (s != NULL)
+		environ_copy(s->environ, env);
+
+	value = options_get_string(global_options, "default-terminal");
+	environ_set(env, "TERM", "%s", value);
+
+	if (s != NULL)
+		idx = s->id;
+	else
+		idx = -1;
+	environ_set(env, "TMUX", "%s,%ld,%d", socket_path, (long)getpid(), idx);
+
+	return (env);
+}
 
 <code block>
-
-
-
-
-#include <sys/types.h>
-
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "tmux.h"
-
-struct mode_tree_item;
-TAILQ_HEAD(mode_tree_list, mode_tree_item);
-
-struct mode_tree_data {
-	int			  dead;
-	u_int			  references;
-
-	struct window_pane	 *wp;
-	void			 *modedata;
-
-	const char		**sort_list;
-	u_int			  sort_size;
-	u_int			  sort_type;
-
-	void			 (*buildcb)(void *, u_int, uint64_t *,
-				     const char *);
-	struct screen		*(*drawcb)(void *, void *, u_int, u_int);
-	int			 (*searchcb)(void*, void *, const char *);
-
-	struct mode_tree_list	  children;
-	struct mode_tree_list	  saved;
-
-	struct mode_tree_line	 *line_list;
-	u_int			  line_size;
-
-	u_int			  depth;
-
-	u_int			  width;
-	u_int			  height;
-
-	u_int			  offset;
-	u_int			  current;
-
-	struct screen		  screen;
-
-	int			  preview;
-	char			 *search;
-	char			 *filter;
-};
-
-struct mode_tree_item {
-	struct mode_tree_item		*parent;
-	void				*itemdata;
-	u_int				 line;
-
-	uint64_t			 tag;
-	const char			*name;
-	const char			*text;
-
-	int				 expanded;
-	int				 tagged;
-
-	struct mode_tree_list		 children;
-	TAILQ_ENTRY(mode_tree_item)	 entry;
-};
-
-struct mode_tree_line {
-	struct mode_tree_item		*item;
-	u_int				 depth;
-	int				 last;
-	int				 flat;
-};
-
-static void mode_tree_free_items(struct mode_tree_list *);
-
-static struct mode_tree_item *
-mode_tree_find_item(struct mode_tree_list *mtl, uint64_t tag)
-{
-	struct mode_tree_item	*mti, *child;
-
-	TAILQ_FOREACH(mti, mtl, entry) {
-		if (mti->tag == tag)
-			return (mti);
-		child = mode_tree_find_item(&mti->children, tag);
-		if (child != NULL)
-			return (child);
-	}
-	return (NULL);
-}
-
-static void
-mode_tree_free_item(struct mode_tree_item *mti)
-{
-	mode_tree_free_items(&mti->children);
-
-	free((void *)mti->name);
-	free((void *)mti->text);
-
-	free(mti);
-}
-
-static void
-mode_tree_free_items(struct mode_tree_list *mtl)
-{
-	struct mode_tree_item	*mti, *mti1;
-
-	TAILQ_FOREACH_SAFE(mti, mtl, entry, mti1) {
-		TAILQ_REMOVE(mtl, mti, entry);
-		mode_tree_free_item(mti);
-	}
-}
-
-static void
-mode_tree_clear_lines(struct mode_tree_data *mtd)
-{
-	free(mtd->line_list);
-	mtd->line_list = NULL;
-	mtd->line_size = 0;
-}
-
-static void
-mode_tree_build_lines(struct mode_tree_data *mtd,
-    struct mode_tree_list *mtl, u_int depth)
-{
-	struct mode_tree_item	*mti;
-	struct mode_tree_line	*line;
-	u_int			 i;
-	int			 flat = 1;
-
-	mtd->depth = depth;
-	TAILQ_FOREACH(mti, mtl, entry) {
-		mtd->line_list = xreallocarray(mtd->line_list,
-		    mtd->line_size + 1, sizeof *mtd->line_list);
-
-		line = &mtd->line_list[mtd->line_size++];
-		line->item = mti;
-		line->depth = depth;
-		line->last = (mti == TAILQ_LAST(mtl, mode_tree_list));
-
-		mti->line = (mtd->line_size - 1);
-		if (!TAILQ_EMPTY(&mti->children))
-			flat = 0;
-		if (mti->expanded)
-			mode_tree_build_lines(mtd, &mti->children, depth + 1);
-	}
-	TAILQ_FOREACH(mti, mtl, entry) {
-		for (i = 0; i < mtd->line_size; i++) {
-			line = &mtd->line_list[i];
-			if (line->item == mti)
-				line->flat = flat;
-		}
-	}
-}
-
-static void
-mode_tree_clear_tagged(struct mode_tree_list *mtl)
-{
-	struct mode_tree_item	*mti;
-
-	TAILQ_FOREACH(mti, mtl, entry) {
-		mti->tagged = 0;
-		mode_tree_clear_tagged(&mti->children);
-	}
-}
-
-static void
-mode_tree_set_current(struct mode_tree_data *mtd, uint64_t tag)
-{
-	u_int	i;
-
-	for (i = 0; i < mtd->line_size; i++) {
-		if (mtd->line_list[i].item->tag == tag)
-			break;
-	}
-	if (i != mtd->line_size) {
-		mtd->current = i;
-		if (mtd->current > mtd->height - 1)
-			mtd->offset = 1 + mtd->current - mtd->height;
-		else
-			mtd->offset = 0;
-	} else {
-		mtd->current = 0;
-		mtd->offset = 0;
-	}
-}
-
-void
-mode_tree_up(struct mode_tree_data *mtd, int wrap)
-{
-	if (mtd->current == 0) {
-		if (wrap) {
-			mtd->current = mtd->line_size - 1;
-			if (mtd->line_size >= mtd->height)
-				mtd->offset = mtd->line_size - mtd->height;
-		}
-	} else {
-		mtd->current--;
-		if (mtd->current < mtd->offset)
-			mtd->offset--;
-	}
-}
-
-void
-mode_tree_down(struct mode_tree_data *mtd, int wrap)
-{
-	if (mtd->current == mtd->line_size - 1) {
-		if (wrap) {
-			mtd->current = 0;
-			mtd->offset = 0;
-		}
-	} else {
-		mtd->current++;
-		if (mtd->current > mtd->offset + mtd->height - 1)
-			mtd->offset++;
-	}
-}
-
-void *
-mode_tree_get_current(struct mode_tree_data *mtd)
-{
-	return (mtd->line_list[mtd->current].item->itemdata);
-}
-
-u_int
-mode_tree_count_tagged(struct mode_tree_data *mtd)
-{
-	struct mode_tree_item	*mti;
-	u_int			 i, tagged;
-
-	tagged = 0;
-	for (i = 0; i < mtd->line_size; i++) {
-		mti = mtd->line_list[i].item;
-		if (mti->tagged)
-			tagged++;
-	}
-	return (tagged);
-}
-
-void
-mode_tree_each_tagged(struct mode_tree_data *mtd, void (*cb)(void *, void *,
-    key_code), key_code key, int current)
-{
-	struct mode_tree_item	*mti;
-	u_int			 i;
-	int			 fired;
-
-	fired = 0;
-	for (i = 0; i < mtd->line_size; i++) {
-		mti = mtd->line_list[i].item;
-		if (mti->tagged) {
-			fired = 1;
-			cb(mtd->modedata, mti->itemdata, key);
-		}
-	}
-	if (!fired && current) {
-		mti = mtd->line_list[mtd->current].item;
-		cb(mtd->modedata, mti->itemdata, key);
-	}
-}
-
-struct mode_tree_data *
-mode_tree_start(struct window_pane *wp, struct args *args,
-    void (*buildcb)(void *, u_int, uint64_t *, const char *),
-    struct screen *(*drawcb)(void *, void *, u_int, u_int),
-    int (*searchcb)(void *, void *, const char *), void *modedata,
-    const char **sort_list, u_int sort_size, struct screen **s)
-{
-	struct mode_tree_data	*mtd;
-	const char		*sort;
-	u_int			 i;
-
-	mtd = xcalloc(1, sizeof *mtd);
-	mtd->references = 1;
-
-	mtd->wp = wp;
-	mtd->modedata = modedata;
-
-	mtd->sort_list = sort_list;
-	mtd->sort_size = sort_size;
-	mtd->sort_type = 0;
-
-	mtd->preview = !args_has(args, 'N');
-
-	sort = args_get(args, 'O');
-	if (sort != NULL) {
-		for (i = 0; i < sort_size; i++) {
-			if (strcasecmp(sort, sort_list[i]) == 0)
-				mtd->sort_type = i;
-		}
-	}
-
-	if (args_has(args, 'f'))
-		mtd->filter = xstrdup(args_get(args, 'f'));
-	else
-		mtd->filter = NULL;
-
-	mtd->buildcb = buildcb;
-	mtd->drawcb = drawcb;
-	mtd->searchcb = searchcb;
-
-	TAILQ_INIT(&mtd->children);
-
-	*s = &mtd->screen;
-	screen_init(*s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
-	(*s)->mode &= ~MODE_CURSOR;
-
-	return (mtd);
-}
-
-void
-mode_tree_build(struct mode_tree_data *mtd)
-{
-	struct screen	*s = &mtd->screen;
-	uint64_t	 tag;
-
-	if (mtd->line_list != NULL)
-		tag = mtd->line_list[mtd->current].item->tag;
-	else
-		tag = 0;
-
-	TAILQ_CONCAT(&mtd->saved, &mtd->children, entry);
-	TAILQ_INIT(&mtd->children);
-
-	mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, mtd->filter);
-	if (TAILQ_EMPTY(&mtd->children))
-		mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, NULL);
-
-	mode_tree_free_items(&mtd->saved);
-	TAILQ_INIT(&mtd->saved);
-
-	mode_tree_clear_lines(mtd);
-	mode_tree_build_lines(mtd, &mtd->children, 0);
-
-	mode_tree_set_current(mtd, tag);
-
-	mtd->width = screen_size_x(s);
-	if (mtd->preview) {
-		mtd->height = (screen_size_y(s) / 3) * 2;
-		if (mtd->height > mtd->line_size)
-			mtd->height = screen_size_y(s) / 2;
-		if (mtd->height < 10)
-			mtd->height = screen_size_y(s);
-		if (screen_size_y(s) - mtd->height < 2)
-			mtd->height = screen_size_y(s);
-	} else
-		mtd->height = screen_size_y(s);
-}
-
-static void
-mode_tree_remove_ref(struct mode_tree_data *mtd)
-{
-	if (--mtd->references == 0)
-		free(mtd);
-}
-
-void
-mode_tree_free(struct mode_tree_data *mtd)
-{
-	mode_tree_free_items(&mtd->children);
-	mode_tree_clear_lines(mtd);
-	screen_free(&mtd->screen);
-
-	free(mtd->search);
-	free(mtd->filter);
-
-	mtd->dead = 1;
-	mode_tree_remove_ref(mtd);
-}
-
-void
-mode_tree_resize(struct mode_tree_data *mtd, u_int sx, u_int sy)
-{
-	struct screen	*s = &mtd->screen;
-
-	screen_resize(s, sx, sy, 0);
-
-	mode_tree_build(mtd);
-	mode_tree_draw(mtd);
-
-	mtd->wp->flags |= PANE_REDRAW;
-}
-
-struct mode_tree_item *
-mode_tree_add(struct mode_tree_data *mtd, struct mode_tree_item *parent,
-    void *itemdata, uint64_t tag, const char *name, const char *text,
-    int expanded)
-{
-	struct mode_tree_item	*mti, *saved;
-
-	log_debug("%s: %llu, %s %s", __func__, (unsigned long long)tag,
-	    name, text);
-
-	mti = xcalloc(1, sizeof *mti);
-	mti->parent = parent;
-	mti->itemdata = itemdata;
-
-	mti->tag = tag;
-	mti->name = xstrdup(name);
-	mti->text = xstrdup(text);
-
-	saved = mode_tree_find_item(&mtd->saved, tag);
-	if (saved != NULL) {
-		if (parent == NULL || (parent != NULL && parent->expanded))
-			mti->tagged = saved->tagged;
-		mti->expanded = saved->expanded;
-	} else if (expanded == -1)
-		mti->expanded = 1;
-	else
-		mti->expanded = expanded;
-
-	TAILQ_INIT(&mti->children);
-
-	if (parent != NULL)
-		TAILQ_INSERT_TAIL(&parent->children, mti, entry);
-	else
-		TAILQ_INSERT_TAIL(&mtd->children, mti, entry);
-
-	return (mti);
-}
-
-void
-mode_tree_remove(struct mode_tree_data *mtd, struct mode_tree_item *mti)
-{
-	struct mode_tree_item	*parent = mti->parent;
-
-	if (parent != NULL)
-		TAILQ_REMOVE(&parent->children, mti, entry);
-	else
-		TAILQ_REMOVE(&mtd->children, mti, entry);
-	mode_tree_free_item(mti);
-}
-
-void
-mode_tree_draw(struct mode_tree_data *mtd)
-{
-	struct window_pane	*wp = mtd->wp;
-	struct screen		*s = &mtd->screen, *box = NULL;
-	struct mode_tree_line	*line;
-	struct mode_tree_item	*mti;
-	struct options		*oo = wp->window->options;
-	struct screen_write_ctx	 ctx;
-	struct grid_cell	 gc0, gc;
-	u_int			 w, h, i, j, sy, box_x, box_y;
-	char			*text, *start, key[7];
-	const char		*tag, *symbol;
-	size_t			 size;
-	int			 keylen;
-
-	if (mtd->line_size == 0)
-		return;
-
-	memcpy(&gc0, &grid_default_cell, sizeof gc0);
-	memcpy(&gc, &grid_default_cell, sizeof gc);
-	style_apply(&gc, oo, "mode-style");
-
-	w = mtd->width;
-	h = mtd->height;
-
-	screen_write_start(&ctx, NULL, s);
-	screen_write_clearscreen(&ctx, 8);
-
-	if (mtd->line_size > 10)
-		keylen = 6;
-	else
-		keylen = 4;
-
-	for (i = 0; i < mtd->line_size; i++) {
-		if (i < mtd->offset)
-			continue;
-		if (i > mtd->offset + h - 1)
-			break;
-
-		line = &mtd->line_list[i];
-		mti = line->item;
-
-		screen_write_cursormove(&ctx, 0, i - mtd->offset);
-
-		if (i < 10)
-			snprintf(key, sizeof key, "(%c)  ", '0' + i);
-		else if (i < 36)
-			snprintf(key, sizeof key, "(M-%c)", 'a' + (i - 10));
-		else
-			*key = '\0';
-
-		if (line->flat)
-			symbol = "";
-		else if (TAILQ_EMPTY(&mti->children))
-			symbol = "  ";
-		else if (mti->expanded)
-			symbol = "- ";
-		else
-			symbol = "+ ";
-
-		if (line->depth == 0)
-			start = xstrdup(symbol);
-		else {
-			size = (4 * line->depth) + 32;
-
-			start = xcalloc(1, size);
-			for (j = 1; j < line->depth; j++) {
-				if (mti->parent != NULL &&
-				    mtd->line_list[mti->parent->line].last)
-					strlcat(start, "    ", size);
-				else
-					strlcat(start, "\001x\001   ", size);
-			}
-			if (line->last)
-				strlcat(start, "\001mq\001> ", size);
-			else
-				strlcat(start, "\001tq\001> ", size);
-			strlcat(start, symbol, size);
-		}
-
-		if (mti->tagged)
-			tag = "*";
-		else
-			tag = "";
-		xasprintf(&text, "%-*s%s%s%s: %s", keylen, key, start,
-		    mti->name, tag, mti->text);
-		free(start);
-
-		if (mti->tagged) {
-			gc.attr ^= GRID_ATTR_BRIGHT;
-			gc0.attr ^= GRID_ATTR_BRIGHT;
-		}
-
-		if (i != mtd->current) {
-			screen_write_puts(&ctx, &gc0, "%.*s", w, text);
-			screen_write_clearendofline(&ctx, 8);
-		} else
-			screen_write_puts(&ctx, &gc, "%-*.*s", w, w, text);
-		free(text);
-
-		if (mti->tagged) {
-			gc.attr ^= GRID_ATTR_BRIGHT;
-			gc0.attr ^= GRID_ATTR_BRIGHT;
-		}
-	}
-
-	sy = screen_size_y(s);
-	if (!mtd->preview || sy <= 4 || h <= 4 || sy - h <= 4 || w <= 4) {
-		screen_write_stop(&ctx);
-		return;
-	}
-
-	line = &mtd->line_list[mtd->current];
-	mti = line->item;
-
-	screen_write_cursormove(&ctx, 0, h);
-	screen_write_box(&ctx, w, sy - h);
-
-	xasprintf(&text, " %s (sort: %s) ", mti->name,
-	    mtd->sort_list[mtd->sort_type]);
-	if (w - 2 >= strlen(text)) {
-		screen_write_cursormove(&ctx, 1, h);
-		screen_write_puts(&ctx, &gc0, "%s", text);
-	}
-	free(text);
-
-	box_x = w - 4;
-	box_y = sy - h - 2;
-
-	if (box_x != 0 && box_y != 0)
-		box = mtd->drawcb(mtd->modedata, mti->itemdata, box_x, box_y);
-	if (box != NULL) {
-		screen_write_cursormove(&ctx, 2, h + 1);
-		screen_write_copy(&ctx, box, 0, 0, box_x, box_y, NULL, NULL);
-
-		screen_free(box);
-	}
-
-	screen_write_stop(&ctx);
-}
-
-static struct mode_tree_item *
-mode_tree_search_for(struct mode_tree_data *mtd)
-{
-	struct mode_tree_item	*mti, *last, *next;
-
-	if (mtd->search == NULL)
-		return (NULL);
-
-	mti = last = mtd->line_list[mtd->current].item;
-	for (;;) {
-		if (!TAILQ_EMPTY(&mti->children))
-			mti = TAILQ_FIRST(&mti->children);
-		else if ((next = TAILQ_NEXT(mti, entry)) != NULL)
-			mti = next;
-		else {
-			for (;;) {
-				mti = mti->parent;
-				if (mti == NULL)
-					break;
-				if ((next = TAILQ_NEXT(mti, entry)) != NULL) {
-					mti = next;
-					break;
-				}
-			}
-		}
-		if (mti == NULL)
-			mti = TAILQ_FIRST(&mtd->children);
-		if (mti == last)
-			break;
-
-		if (mtd->searchcb == NULL) {
-			if (strstr(mti->name, mtd->search) != NULL)
-				return (mti);
-			continue;
-		}
-		if (mtd->searchcb(mtd->modedata, mti->itemdata, mtd->search))
-			return (mti);
-	}
-	return (NULL);
-}
-
-static void
-mode_tree_search_set(struct mode_tree_data *mtd)
-{
-	struct mode_tree_item	*mti, *loop;
-	uint64_t		 tag;
-
-	mti = mode_tree_search_for(mtd);
-	if (mti == NULL)
-		return;
-	tag = mti->tag;
-
-	loop = mti->parent;
-	while (loop != NULL) {
-		loop->expanded = 1;
-		loop = loop->parent;
-	}
-
-	mode_tree_build(mtd);
-	mode_tree_set_current(mtd, tag);
-	mode_tree_draw(mtd);
-	mtd->wp->flags |= PANE_REDRAW;
-}
-
-static int
-mode_tree_search_callback(__unused struct client *c, void *data, const char *s,
-    __unused int done)
-{
-	struct mode_tree_data	*mtd = data;
-
-	if (mtd->dead)
-		return (0);
-
-	free(mtd->search);
-	if (s == NULL || *s == '\0') {
-		mtd->search = NULL;
-		return (0);
-	}
-	mtd->search = xstrdup(s);
-	mode_tree_search_set(mtd);
-
-	return (0);
-}
-
-static void
-mode_tree_search_free(void *data)
-{
-	mode_tree_remove_ref(data);
-}
-
-static int
-mode_tree_filter_callback(__unused struct client *c, void *data, const char *s,
-    __unused int done)
-{
-	struct mode_tree_data	*mtd = data;
-
-	if (mtd->dead)
-		return (0);
-
-	if (mtd->filter != NULL)
-		free(mtd->filter);
-	if (s == NULL || *s == '\0')
-		mtd->filter = NULL;
-	else
-		mtd->filter = xstrdup(s);
-
-	mode_tree_build(mtd);
-	mode_tree_draw(mtd);
-	mtd->wp->flags |= PANE_REDRAW;
-
-	return (0);
-}
-
-static void
-mode_tree_filter_free(void *data)
-{
-	mode_tree_remove_ref(data);
-}
-
-int
-mode_tree_key(struct mode_tree_data *mtd, struct client *c, key_code *key,
-    struct mouse_event *m)
-{
-	struct mode_tree_line	*line;
-	struct mode_tree_item	*current, *parent;
-	u_int			 i, x, y;
-	int			 choice;
-	key_code		 tmp;
-
-	if (*key == KEYC_MOUSEDOWN1_PANE) {
-		if (cmd_mouse_at(mtd->wp, m, &x, &y, 0) != 0) {
-			*key = KEYC_NONE;
-			return (0);
-		}
-		if (x > mtd->width || y > mtd->height) {
-			*key = KEYC_NONE;
-			return (0);
-		}
-		if (mtd->offset + y < mtd->line_size) {
-			mtd->current = mtd->offset + y;
-			*key = '\r';
-			return (0);
-		}
-	}
-
-	line = &mtd->line_list[mtd->current];
-	current = line->item;
-
-	choice = -1;
-	if (*key >= '0' && *key <= '9')
-		choice = (*key) - '0';
-	else if (((*key) & KEYC_MASK_MOD) == KEYC_ESCAPE) {
-		tmp = (*key) & KEYC_MASK_KEY;
-		if (tmp >= 'a' && tmp <= 'z')
-			choice = 10 + (tmp - 'a');
-	}
-	if (choice != -1) {
-		if ((u_int)choice > mtd->line_size - 1) {
-			*key = KEYC_NONE;
-			return (0);
-		}
-		mtd->current = choice;
-		*key = '\r';
-		return (0);
-	}
-
-	switch (*key) {
-	case 'q':
-	case '\033': 
-		return (1);
-	case KEYC_UP:
-	case 'k':
-	case KEYC_WHEELUP_PANE:
-		mode_tree_up(mtd, 1);
-		break;
-	case KEYC_DOWN:
-	case 'j':
-	case KEYC_WHEELDOWN_PANE:
-		mode_tree_down(mtd, 1);
-		break;
-	case KEYC_PPAGE:
-	case '\002': 
-		for (i = 0; i < mtd->height; i++) {
-			if (mtd->current == 0)
-				break;
-			mode_tree_up(mtd, 1);
-		}
-		break;
-	case KEYC_NPAGE:
-	case '\006': 
-		for (i = 0; i < mtd->height; i++) {
-			if (mtd->current == mtd->line_size - 1)
-				break;
-			mode_tree_down(mtd, 1);
-		}
-		break;
-	case KEYC_HOME:
-		mtd->current = 0;
-		mtd->offset = 0;
-		break;
-	case KEYC_END:
-		mtd->current = mtd->line_size - 1;
-		if (mtd->current > mtd->height - 1)
-			mtd->offset = mtd->current - mtd->height;
-		else
-			mtd->offset = 0;
-		break;
-	case 't':
-
-		if (!current->tagged) {
-			parent = current->parent;
-			while (parent != NULL) {
-				parent->tagged = 0;
-				parent = parent->parent;
-			}
-			mode_tree_clear_tagged(&current->children);
-			current->tagged = 1;
-		} else
-			current->tagged = 0;
-		mode_tree_down(mtd, 0);
-		break;
-	case 'T':
-		for (i = 0; i < mtd->line_size; i++)
-			mtd->line_list[i].item->tagged = 0;
-		break;
-	case '\024': 
-		for (i = 0; i < mtd->line_size; i++) {
-			if (mtd->line_list[i].item->parent == NULL)
-				mtd->line_list[i].item->tagged = 1;
-			else
-				mtd->line_list[i].item->tagged = 0;
-		}
-		break;
-	case 'O':
-		mtd->sort_type++;
-		if (mtd->sort_type == mtd->sort_size)
-			mtd->sort_type = 0;
-		mode_tree_build(mtd);
-		break;
-	case KEYC_LEFT:
-	case '-':
-		if (line->flat || !current->expanded)
-			current = current->parent;
-		if (current == NULL)
-			mode_tree_up(mtd, 0);
-		else {
-			current->expanded = 0;
-			mtd->current = current->line;
-			mode_tree_build(mtd);
-		}
-		break;
-	case KEYC_RIGHT:
-	case '+':
-		if (line->flat || current->expanded)
-			mode_tree_down(mtd, 0);
-		else if (!line->flat) {
-			current->expanded = 1;
-			mode_tree_build(mtd);
-		}
-		break;
-	case '\023': 
-		mtd->references++;
-		status_prompt_set(c, "(search) ", "",
-		    mode_tree_search_callback, mode_tree_search_free, mtd,
-		    PROMPT_NOFORMAT);
-		break;
-	case 'n':
-		mode_tree_search_set(mtd);
-		break;
-	case 'f':
-		mtd->references++;
-		status_prompt_set(c, "(filter) ", mtd->filter,
-		    mode_tree_filter_callback, mode_tree_filter_free, mtd,
-		    PROMPT_NOFORMAT);
-		break;
-	case 'v':
-		mtd->preview = !mtd->preview;
-		mode_tree_build(mtd);
-
-
-		if (mtd->preview && mtd->current > mtd->height - 1) {
-			mtd->offset = mtd->current - mtd->height;
-			mtd->current--;
-		}
-		break;
-	}
-	return (0);
-}
-
-void
-mode_tree_run_command(struct client *c, struct cmd_find_state *fs,
-    const char *template, const char *name)
-{
-	struct cmdq_item	*new_item;
-	struct cmd_list		*cmdlist;
-	char			*command, *cause;
-
-	command = cmd_template_replace(template, name, 1);
-	if (command == NULL || *command == '\0') {
-		free(command);
-		return;
-	}
-
-	cmdlist = cmd_string_parse(command, NULL, 0, &cause);
-	if (cmdlist == NULL) {
-		if (cause != NULL && c != NULL) {
-			*cause = toupper((u_char)*cause);
-			status_message_set(c, "%s", cause);
-		}
-		free(cause);
-	} else {
-		new_item = cmdq_get_command(cmdlist, fs, NULL, 0);
-		cmdq_append(c, new_item);
-		cmd_list_free(cmdlist);
-	}
-
-	free(command);
-}
+
+
+
+
+#include <sys/types.h>
+
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "tmux.h"
+
+struct mode_tree_item;
+TAILQ_HEAD(mode_tree_list, mode_tree_item);
+
+struct mode_tree_data {
+	int			  dead;
+	u_int			  references;
+
+	struct window_pane	 *wp;
+	void			 *modedata;
+
+	const char		**sort_list;
+	u_int			  sort_size;
+	u_int			  sort_type;
+
+	void			 (*buildcb)(void *, u_int, uint64_t *,
+				     const char *);
+	struct screen		*(*drawcb)(void *, void *, u_int, u_int);
+	int			 (*searchcb)(void*, void *, const char *);
+
+	struct mode_tree_list	  children;
+	struct mode_tree_list	  saved;
+
+	struct mode_tree_line	 *line_list;
+	u_int			  line_size;
+
+	u_int			  depth;
+
+	u_int			  width;
+	u_int			  height;
+
+	u_int			  offset;
+	u_int			  current;
+
+	struct screen		  screen;
+
+	int			  preview;
+	char			 *search;
+	char			 *filter;
+};
+
+struct mode_tree_item {
+	struct mode_tree_item		*parent;
+	void				*itemdata;
+	u_int				 line;
+
+	uint64_t			 tag;
+	const char			*name;
+	const char			*text;
+
+	int				 expanded;
+	int				 tagged;
+
+	struct mode_tree_list		 children;
+	TAILQ_ENTRY(mode_tree_item)	 entry;
+};
+
+struct mode_tree_line {
+	struct mode_tree_item		*item;
+	u_int				 depth;
+	int				 last;
+	int				 flat;
+};
+
+static void mode_tree_free_items(struct mode_tree_list *);
+
+static struct mode_tree_item *
+mode_tree_find_item(struct mode_tree_list *mtl, uint64_t tag)
+{
+	struct mode_tree_item	*mti, *child;
+
+	TAILQ_FOREACH(mti, mtl, entry) {
+		if (mti->tag == tag)
+			return (mti);
+		child = mode_tree_find_item(&mti->children, tag);
+		if (child != NULL)
+			return (child);
+	}
+	return (NULL);
+}
+
+static void
+mode_tree_free_item(struct mode_tree_item *mti)
+{
+	mode_tree_free_items(&mti->children);
+
+	free((void *)mti->name);
+	free((void *)mti->text);
+
+	free(mti);
+}
+
+static void
+mode_tree_free_items(struct mode_tree_list *mtl)
+{
+	struct mode_tree_item	*mti, *mti1;
+
+	TAILQ_FOREACH_SAFE(mti, mtl, entry, mti1) {
+		TAILQ_REMOVE(mtl, mti, entry);
+		mode_tree_free_item(mti);
+	}
+}
+
+static void
+mode_tree_check_selected(struct mode_tree_data *mtd)
+{
+
+	if (mtd->current > mtd->height - 1)
+		mtd->offset = mtd->current - mtd->height + 1;
+}
+
+static void
+mode_tree_clear_lines(struct mode_tree_data *mtd)
+{
+	free(mtd->line_list);
+	mtd->line_list = NULL;
+	mtd->line_size = 0;
+}
+
+static void
+mode_tree_build_lines(struct mode_tree_data *mtd,
+    struct mode_tree_list *mtl, u_int depth)
+{
+	struct mode_tree_item	*mti;
+	struct mode_tree_line	*line;
+	u_int			 i;
+	int			 flat = 1;
+
+	mtd->depth = depth;
+	TAILQ_FOREACH(mti, mtl, entry) {
+		mtd->line_list = xreallocarray(mtd->line_list,
+		    mtd->line_size + 1, sizeof *mtd->line_list);
+
+		line = &mtd->line_list[mtd->line_size++];
+		line->item = mti;
+		line->depth = depth;
+		line->last = (mti == TAILQ_LAST(mtl, mode_tree_list));
+
+		mti->line = (mtd->line_size - 1);
+		if (!TAILQ_EMPTY(&mti->children))
+			flat = 0;
+		if (mti->expanded)
+			mode_tree_build_lines(mtd, &mti->children, depth + 1);
+	}
+	TAILQ_FOREACH(mti, mtl, entry) {
+		for (i = 0; i < mtd->line_size; i++) {
+			line = &mtd->line_list[i];
+			if (line->item == mti)
+				line->flat = flat;
+		}
+	}
+}
+
+static void
+mode_tree_clear_tagged(struct mode_tree_list *mtl)
+{
+	struct mode_tree_item	*mti;
+
+	TAILQ_FOREACH(mti, mtl, entry) {
+		mti->tagged = 0;
+		mode_tree_clear_tagged(&mti->children);
+	}
+}
+
+static void
+mode_tree_set_current(struct mode_tree_data *mtd, uint64_t tag)
+{
+	u_int	i;
+
+	for (i = 0; i < mtd->line_size; i++) {
+		if (mtd->line_list[i].item->tag == tag)
+			break;
+	}
+	if (i != mtd->line_size) {
+		mtd->current = i;
+		if (mtd->current > mtd->height - 1)
+			mtd->offset = mtd->current - mtd->height + 1;
+		else
+			mtd->offset = 0;
+	} else {
+		mtd->current = 0;
+		mtd->offset = 0;
+	}
+}
+
+void
+mode_tree_up(struct mode_tree_data *mtd, int wrap)
+{
+	if (mtd->current == 0) {
+		if (wrap) {
+			mtd->current = mtd->line_size - 1;
+			if (mtd->line_size >= mtd->height)
+				mtd->offset = mtd->line_size - mtd->height;
+		}
+	} else {
+		mtd->current--;
+		if (mtd->current < mtd->offset)
+			mtd->offset--;
+	}
+}
+
+void
+mode_tree_down(struct mode_tree_data *mtd, int wrap)
+{
+	if (mtd->current == mtd->line_size - 1) {
+		if (wrap) {
+			mtd->current = 0;
+			mtd->offset = 0;
+		}
+	} else {
+		mtd->current++;
+		if (mtd->current > mtd->offset + mtd->height - 1)
+			mtd->offset++;
+	}
+}
+
+void *
+mode_tree_get_current(struct mode_tree_data *mtd)
+{
+	return (mtd->line_list[mtd->current].item->itemdata);
+}
+
+u_int
+mode_tree_count_tagged(struct mode_tree_data *mtd)
+{
+	struct mode_tree_item	*mti;
+	u_int			 i, tagged;
+
+	tagged = 0;
+	for (i = 0; i < mtd->line_size; i++) {
+		mti = mtd->line_list[i].item;
+		if (mti->tagged)
+			tagged++;
+	}
+	return (tagged);
+}
+
+void
+mode_tree_each_tagged(struct mode_tree_data *mtd, void (*cb)(void *, void *,
+    key_code), key_code key, int current)
+{
+	struct mode_tree_item	*mti;
+	u_int			 i;
+	int			 fired;
+
+	fired = 0;
+	for (i = 0; i < mtd->line_size; i++) {
+		mti = mtd->line_list[i].item;
+		if (mti->tagged) {
+			fired = 1;
+			cb(mtd->modedata, mti->itemdata, key);
+		}
+	}
+	if (!fired && current) {
+		mti = mtd->line_list[mtd->current].item;
+		cb(mtd->modedata, mti->itemdata, key);
+	}
+}
+
+struct mode_tree_data *
+mode_tree_start(struct window_pane *wp, struct args *args,
+    void (*buildcb)(void *, u_int, uint64_t *, const char *),
+    struct screen *(*drawcb)(void *, void *, u_int, u_int),
+    int (*searchcb)(void *, void *, const char *), void *modedata,
+    const char **sort_list, u_int sort_size, struct screen **s)
+{
+	struct mode_tree_data	*mtd;
+	const char		*sort;
+	u_int			 i;
+
+	mtd = xcalloc(1, sizeof *mtd);
+	mtd->references = 1;
+
+	mtd->wp = wp;
+	mtd->modedata = modedata;
+
+	mtd->sort_list = sort_list;
+	mtd->sort_size = sort_size;
+	mtd->sort_type = 0;
+
+	mtd->preview = !args_has(args, 'N');
+
+	sort = args_get(args, 'O');
+	if (sort != NULL) {
+		for (i = 0; i < sort_size; i++) {
+			if (strcasecmp(sort, sort_list[i]) == 0)
+				mtd->sort_type = i;
+		}
+	}
+
+	if (args_has(args, 'f'))
+		mtd->filter = xstrdup(args_get(args, 'f'));
+	else
+		mtd->filter = NULL;
+
+	mtd->buildcb = buildcb;
+	mtd->drawcb = drawcb;
+	mtd->searchcb = searchcb;
+
+	TAILQ_INIT(&mtd->children);
+
+	*s = &mtd->screen;
+	screen_init(*s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
+	(*s)->mode &= ~MODE_CURSOR;
+
+	return (mtd);
+}
+
+void
+mode_tree_build(struct mode_tree_data *mtd)
+{
+	struct screen	*s = &mtd->screen;
+	uint64_t	 tag;
+
+	if (mtd->line_list != NULL)
+		tag = mtd->line_list[mtd->current].item->tag;
+	else
+		tag = 0;
+
+	TAILQ_CONCAT(&mtd->saved, &mtd->children, entry);
+	TAILQ_INIT(&mtd->children);
+
+	mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, mtd->filter);
+	if (TAILQ_EMPTY(&mtd->children))
+		mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, NULL);
+
+	mode_tree_free_items(&mtd->saved);
+	TAILQ_INIT(&mtd->saved);
+
+	mode_tree_clear_lines(mtd);
+	mode_tree_build_lines(mtd, &mtd->children, 0);
+
+	mode_tree_set_current(mtd, tag);
+
+	mtd->width = screen_size_x(s);
+	if (mtd->preview) {
+		mtd->height = (screen_size_y(s) / 3) * 2;
+		if (mtd->height > mtd->line_size)
+			mtd->height = screen_size_y(s) / 2;
+		if (mtd->height < 10)
+			mtd->height = screen_size_y(s);
+		if (screen_size_y(s) - mtd->height < 2)
+			mtd->height = screen_size_y(s);
+	} else
+		mtd->height = screen_size_y(s);
+	mode_tree_check_selected(mtd);
+}
+
+static void
+mode_tree_remove_ref(struct mode_tree_data *mtd)
+{
+	if (--mtd->references == 0)
+		free(mtd);
+}
+
+void
+mode_tree_free(struct mode_tree_data *mtd)
+{
+	mode_tree_free_items(&mtd->children);
+	mode_tree_clear_lines(mtd);
+	screen_free(&mtd->screen);
+
+	free(mtd->search);
+	free(mtd->filter);
+
+	mtd->dead = 1;
+	mode_tree_remove_ref(mtd);
+}
+
+void
+mode_tree_resize(struct mode_tree_data *mtd, u_int sx, u_int sy)
+{
+	struct screen	*s = &mtd->screen;
+
+	screen_resize(s, sx, sy, 0);
+
+	mode_tree_build(mtd);
+	mode_tree_draw(mtd);
+
+	mtd->wp->flags |= PANE_REDRAW;
+}
+
+struct mode_tree_item *
+mode_tree_add(struct mode_tree_data *mtd, struct mode_tree_item *parent,
+    void *itemdata, uint64_t tag, const char *name, const char *text,
+    int expanded)
+{
+	struct mode_tree_item	*mti, *saved;
+
+	log_debug("%s: %llu, %s %s", __func__, (unsigned long long)tag,
+	    name, text);
+
+	mti = xcalloc(1, sizeof *mti);
+	mti->parent = parent;
+	mti->itemdata = itemdata;
+
+	mti->tag = tag;
+	mti->name = xstrdup(name);
+	mti->text = xstrdup(text);
+
+	saved = mode_tree_find_item(&mtd->saved, tag);
+	if (saved != NULL) {
+		if (parent == NULL || (parent != NULL && parent->expanded))
+			mti->tagged = saved->tagged;
+		mti->expanded = saved->expanded;
+	} else if (expanded == -1)
+		mti->expanded = 1;
+	else
+		mti->expanded = expanded;
+
+	TAILQ_INIT(&mti->children);
+
+	if (parent != NULL)
+		TAILQ_INSERT_TAIL(&parent->children, mti, entry);
+	else
+		TAILQ_INSERT_TAIL(&mtd->children, mti, entry);
+
+	return (mti);
+}
+
+void
+mode_tree_remove(struct mode_tree_data *mtd, struct mode_tree_item *mti)
+{
+	struct mode_tree_item	*parent = mti->parent;
+
+	if (parent != NULL)
+		TAILQ_REMOVE(&parent->children, mti, entry);
+	else
+		TAILQ_REMOVE(&mtd->children, mti, entry);
+	mode_tree_free_item(mti);
+}
+
+void
+mode_tree_draw(struct mode_tree_data *mtd)
+{
+	struct window_pane	*wp = mtd->wp;
+	struct screen		*s = &mtd->screen, *box = NULL;
+	struct mode_tree_line	*line;
+	struct mode_tree_item	*mti;
+	struct options		*oo = wp->window->options;
+	struct screen_write_ctx	 ctx;
+	struct grid_cell	 gc0, gc;
+	u_int			 w, h, i, j, sy, box_x, box_y;
+	char			*text, *start, key[7];
+	const char		*tag, *symbol;
+	size_t			 size;
+	int			 keylen;
+
+	if (mtd->line_size == 0)
+		return;
+
+	memcpy(&gc0, &grid_default_cell, sizeof gc0);
+	memcpy(&gc, &grid_default_cell, sizeof gc);
+	style_apply(&gc, oo, "mode-style");
+
+	w = mtd->width;
+	h = mtd->height;
+
+	screen_write_start(&ctx, NULL, s);
+	screen_write_clearscreen(&ctx, 8);
+
+	if (mtd->line_size > 10)
+		keylen = 6;
+	else
+		keylen = 4;
+
+	for (i = 0; i < mtd->line_size; i++) {
+		if (i < mtd->offset)
+			continue;
+		if (i > mtd->offset + h - 1)
+			break;
+
+		line = &mtd->line_list[i];
+		mti = line->item;
+
+		screen_write_cursormove(&ctx, 0, i - mtd->offset);
+
+		if (i < 10)
+			snprintf(key, sizeof key, "(%c)  ", '0' + i);
+		else if (i < 36)
+			snprintf(key, sizeof key, "(M-%c)", 'a' + (i - 10));
+		else
+			*key = '\0';
+
+		if (line->flat)
+			symbol = "";
+		else if (TAILQ_EMPTY(&mti->children))
+			symbol = "  ";
+		else if (mti->expanded)
+			symbol = "- ";
+		else
+			symbol = "+ ";
+
+		if (line->depth == 0)
+			start = xstrdup(symbol);
+		else {
+			size = (4 * line->depth) + 32;
+
+			start = xcalloc(1, size);
+			for (j = 1; j < line->depth; j++) {
+				if (mti->parent != NULL &&
+				    mtd->line_list[mti->parent->line].last)
+					strlcat(start, "    ", size);
+				else
+					strlcat(start, "\001x\001   ", size);
+			}
+			if (line->last)
+				strlcat(start, "\001mq\001> ", size);
+			else
+				strlcat(start, "\001tq\001> ", size);
+			strlcat(start, symbol, size);
+		}
+
+		if (mti->tagged)
+			tag = "*";
+		else
+			tag = "";
+		xasprintf(&text, "%-*s%s%s%s: %s", keylen, key, start,
+		    mti->name, tag, mti->text);
+		free(start);
+
+		if (mti->tagged) {
+			gc.attr ^= GRID_ATTR_BRIGHT;
+			gc0.attr ^= GRID_ATTR_BRIGHT;
+		}
+
+		if (i != mtd->current) {
+			screen_write_puts(&ctx, &gc0, "%.*s", w, text);
+			screen_write_clearendofline(&ctx, 8);
+		} else
+			screen_write_puts(&ctx, &gc, "%-*.*s", w, w, text);
+		free(text);
+
+		if (mti->tagged) {
+			gc.attr ^= GRID_ATTR_BRIGHT;
+			gc0.attr ^= GRID_ATTR_BRIGHT;
+		}
+	}
+
+	sy = screen_size_y(s);
+	if (!mtd->preview || sy <= 4 || h <= 4 || sy - h <= 4 || w <= 4) {
+		screen_write_stop(&ctx);
+		return;
+	}
+
+	line = &mtd->line_list[mtd->current];
+	mti = line->item;
+
+	screen_write_cursormove(&ctx, 0, h);
+	screen_write_box(&ctx, w, sy - h);
+
+	xasprintf(&text, " %s (sort: %s) ", mti->name,
+	    mtd->sort_list[mtd->sort_type]);
+	if (w - 2 >= strlen(text)) {
+		screen_write_cursormove(&ctx, 1, h);
+		screen_write_puts(&ctx, &gc0, "%s", text);
+	}
+	free(text);
+
+	box_x = w - 4;
+	box_y = sy - h - 2;
+
+	if (box_x != 0 && box_y != 0)
+		box = mtd->drawcb(mtd->modedata, mti->itemdata, box_x, box_y);
+	if (box != NULL) {
+		screen_write_cursormove(&ctx, 2, h + 1);
+		screen_write_copy(&ctx, box, 0, 0, box_x, box_y, NULL, NULL);
+
+		screen_free(box);
+	}
+
+	screen_write_stop(&ctx);
+}
+
+static struct mode_tree_item *
+mode_tree_search_for(struct mode_tree_data *mtd)
+{
+	struct mode_tree_item	*mti, *last, *next;
+
+	if (mtd->search == NULL)
+		return (NULL);
+
+	mti = last = mtd->line_list[mtd->current].item;
+	for (;;) {
+		if (!TAILQ_EMPTY(&mti->children))
+			mti = TAILQ_FIRST(&mti->children);
+		else if ((next = TAILQ_NEXT(mti, entry)) != NULL)
+			mti = next;
+		else {
+			for (;;) {
+				mti = mti->parent;
+				if (mti == NULL)
+					break;
+				if ((next = TAILQ_NEXT(mti, entry)) != NULL) {
+					mti = next;
+					break;
+				}
+			}
+		}
+		if (mti == NULL)
+			mti = TAILQ_FIRST(&mtd->children);
+		if (mti == last)
+			break;
+
+		if (mtd->searchcb == NULL) {
+			if (strstr(mti->name, mtd->search) != NULL)
+				return (mti);
+			continue;
+		}
+		if (mtd->searchcb(mtd->modedata, mti->itemdata, mtd->search))
+			return (mti);
+	}
+	return (NULL);
+}
+
+static void
+mode_tree_search_set(struct mode_tree_data *mtd)
+{
+	struct mode_tree_item	*mti, *loop;
+	uint64_t		 tag;
+
+	mti = mode_tree_search_for(mtd);
+	if (mti == NULL)
+		return;
+	tag = mti->tag;
+
+	loop = mti->parent;
+	while (loop != NULL) {
+		loop->expanded = 1;
+		loop = loop->parent;
+	}
+
+	mode_tree_build(mtd);
+	mode_tree_set_current(mtd, tag);
+	mode_tree_draw(mtd);
+	mtd->wp->flags |= PANE_REDRAW;
+}
+
+static int
+mode_tree_search_callback(__unused struct client *c, void *data, const char *s,
+    __unused int done)
+{
+	struct mode_tree_data	*mtd = data;
+
+	if (mtd->dead)
+		return (0);
+
+	free(mtd->search);
+	if (s == NULL || *s == '\0') {
+		mtd->search = NULL;
+		return (0);
+	}
+	mtd->search = xstrdup(s);
+	mode_tree_search_set(mtd);
+
+	return (0);
+}
+
+static void
+mode_tree_search_free(void *data)
+{
+	mode_tree_remove_ref(data);
+}
+
+static int
+mode_tree_filter_callback(__unused struct client *c, void *data, const char *s,
+    __unused int done)
+{
+	struct mode_tree_data	*mtd = data;
+
+	if (mtd->dead)
+		return (0);
+
+	if (mtd->filter != NULL)
+		free(mtd->filter);
+	if (s == NULL || *s == '\0')
+		mtd->filter = NULL;
+	else
+		mtd->filter = xstrdup(s);
+
+	mode_tree_build(mtd);
+	mode_tree_draw(mtd);
+	mtd->wp->flags |= PANE_REDRAW;
+
+	return (0);
+}
+
+static void
+mode_tree_filter_free(void *data)
+{
+	mode_tree_remove_ref(data);
+}
+
+int
+mode_tree_key(struct mode_tree_data *mtd, struct client *c, key_code *key,
+    struct mouse_event *m)
+{
+	struct mode_tree_line	*line;
+	struct mode_tree_item	*current, *parent;
+	u_int			 i, x, y;
+	int			 choice;
+	key_code		 tmp;
+
+	if (*key == KEYC_MOUSEDOWN1_PANE) {
+		if (cmd_mouse_at(mtd->wp, m, &x, &y, 0) != 0) {
+			*key = KEYC_NONE;
+			return (0);
+		}
+		if (x > mtd->width || y > mtd->height) {
+			*key = KEYC_NONE;
+			return (0);
+		}
+		if (mtd->offset + y < mtd->line_size) {
+			mtd->current = mtd->offset + y;
+			*key = '\r';
+			return (0);
+		}
+	}
+
+	line = &mtd->line_list[mtd->current];
+	current = line->item;
+
+	choice = -1;
+	if (*key >= '0' && *key <= '9')
+		choice = (*key) - '0';
+	else if (((*key) & KEYC_MASK_MOD) == KEYC_ESCAPE) {
+		tmp = (*key) & KEYC_MASK_KEY;
+		if (tmp >= 'a' && tmp <= 'z')
+			choice = 10 + (tmp - 'a');
+	}
+	if (choice != -1) {
+		if ((u_int)choice > mtd->line_size - 1) {
+			*key = KEYC_NONE;
+			return (0);
+		}
+		mtd->current = choice;
+		*key = '\r';
+		return (0);
+	}
+
+	switch (*key) {
+	case 'q':
+	case '\033': 
+		return (1);
+	case KEYC_UP:
+	case 'k':
+	case KEYC_WHEELUP_PANE:
+		mode_tree_up(mtd, 1);
+		break;
+	case KEYC_DOWN:
+	case 'j':
+	case KEYC_WHEELDOWN_PANE:
+		mode_tree_down(mtd, 1);
+		break;
+	case KEYC_PPAGE:
+	case '\002': 
+		for (i = 0; i < mtd->height; i++) {
+			if (mtd->current == 0)
+				break;
+			mode_tree_up(mtd, 1);
+		}
+		break;
+	case KEYC_NPAGE:
+	case '\006': 
+		for (i = 0; i < mtd->height; i++) {
+			if (mtd->current == mtd->line_size - 1)
+				break;
+			mode_tree_down(mtd, 1);
+		}
+		break;
+	case KEYC_HOME:
+		mtd->current = 0;
+		mtd->offset = 0;
+		break;
+	case KEYC_END:
+		mtd->current = mtd->line_size - 1;
+		if (mtd->current > mtd->height - 1)
+			mtd->offset = mtd->current - mtd->height + 1;
+		else
+			mtd->offset = 0;
+		break;
+	case 't':
+
+		if (!current->tagged) {
+			parent = current->parent;
+			while (parent != NULL) {
+				parent->tagged = 0;
+				parent = parent->parent;
+			}
+			mode_tree_clear_tagged(&current->children);
+			current->tagged = 1;
+		} else
+			current->tagged = 0;
+		mode_tree_down(mtd, 0);
+		break;
+	case 'T':
+		for (i = 0; i < mtd->line_size; i++)
+			mtd->line_list[i].item->tagged = 0;
+		break;
+	case '\024': 
+		for (i = 0; i < mtd->line_size; i++) {
+			if (mtd->line_list[i].item->parent == NULL)
+				mtd->line_list[i].item->tagged = 1;
+			else
+				mtd->line_list[i].item->tagged = 0;
+		}
+		break;
+	case 'O':
+		mtd->sort_type++;
+		if (mtd->sort_type == mtd->sort_size)
+			mtd->sort_type = 0;
+		mode_tree_build(mtd);
+		break;
+	case KEYC_LEFT:
+	case '-':
+		if (line->flat || !current->expanded)
+			current = current->parent;
+		if (current == NULL)
+			mode_tree_up(mtd, 0);
+		else {
+			current->expanded = 0;
+			mtd->current = current->line;
+			mode_tree_build(mtd);
+		}
+		break;
+	case KEYC_RIGHT:
+	case '+':
+		if (line->flat || current->expanded)
+			mode_tree_down(mtd, 0);
+		else if (!line->flat) {
+			current->expanded = 1;
+			mode_tree_build(mtd);
+		}
+		break;
+	case '\023': 
+		mtd->references++;
+		status_prompt_set(c, "(search) ", "",
+		    mode_tree_search_callback, mode_tree_search_free, mtd,
+		    PROMPT_NOFORMAT);
+		break;
+	case 'n':
+		mode_tree_search_set(mtd);
+		break;
+	case 'f':
+		mtd->references++;
+		status_prompt_set(c, "(filter) ", mtd->filter,
+		    mode_tree_filter_callback, mode_tree_filter_free, mtd,
+		    PROMPT_NOFORMAT);
+		break;
+	case 'v':
+		mtd->preview = !mtd->preview;
+		mode_tree_build(mtd);
+		if (mtd->preview)
+			mode_tree_check_selected(mtd);
+		break;
+	}
+	return (0);
+}
+
+void
+mode_tree_run_command(struct client *c, struct cmd_find_state *fs,
+    const char *template, const char *name)
+{
+	struct cmdq_item	*new_item;
+	struct cmd_list		*cmdlist;
+	char			*command, *cause;
+
+	command = cmd_template_replace(template, name, 1);
+	if (command == NULL || *command == '\0') {
+		free(command);
+		return;
+	}
+
+	cmdlist = cmd_string_parse(command, NULL, 0, &cause);
+	if (cmdlist == NULL) {
+		if (cause != NULL && c != NULL) {
+			*cause = toupper((u_char)*cause);
+			status_message_set(c, "%s", cause);
+		}
+		free(cause);
+	} else {
+		new_item = cmdq_get_command(cmdlist, fs, NULL, 0);
+		cmdq_append(c, new_item);
+		cmd_list_free(cmdlist);
+	}
+
+	free(command);
+}
+
+<code block>
+
+
+
+
+#include <sys/types.h>
+
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "tmux.h"
+
+struct mode_tree_item;
+TAILQ_HEAD(mode_tree_list, mode_tree_item);
+
+struct mode_tree_data {
+	int			  dead;
+	u_int			  references;
+
+	struct window_pane	 *wp;
+	void			 *modedata;
+
+	const char		**sort_list;
+	u_int			  sort_size;
+	u_int			  sort_type;
+
+	void			 (*buildcb)(void *, u_int, uint64_t *,
+				     const char *);
+	struct screen		*(*drawcb)(void *, void *, u_int, u_int);
+	int			 (*searchcb)(void*, void *, const char *);
+
+	struct mode_tree_list	  children;
+	struct mode_tree_list	  saved;
+
+	struct mode_tree_line	 *line_list;
+	u_int			  line_size;
+
+	u_int			  depth;
+
+	u_int			  width;
+	u_int			  height;
+
+	u_int			  offset;
+	u_int			  current;
+
+	struct screen		  screen;
+
+	int			  preview;
+	char			 *search;
+	char			 *filter;
+};
+
+struct mode_tree_item {
+	struct mode_tree_item		*parent;
+	void				*itemdata;
+	u_int				 line;
+
+	uint64_t			 tag;
+	const char			*name;
+	const char			*text;
+
+	int				 expanded;
+	int				 tagged;
+
+	struct mode_tree_list		 children;
+	TAILQ_ENTRY(mode_tree_item)	 entry;
+};
+
+struct mode_tree_line {
+	struct mode_tree_item		*item;
+	u_int				 depth;
+	int				 last;
+	int				 flat;
+};
+
+static void mode_tree_free_items(struct mode_tree_list *);
+
+static struct mode_tree_item *
+mode_tree_find_item(struct mode_tree_list *mtl, uint64_t tag)
+{
+	struct mode_tree_item	*mti, *child;
+
+	TAILQ_FOREACH(mti, mtl, entry) {
+		if (mti->tag == tag)
+			return (mti);
+		child = mode_tree_find_item(&mti->children, tag);
+		if (child != NULL)
+			return (child);
+	}
+	return (NULL);
+}
+
+static void
+mode_tree_free_item(struct mode_tree_item *mti)
+{
+	mode_tree_free_items(&mti->children);
+
+	free((void *)mti->name);
+	free((void *)mti->text);
+
+	free(mti);
+}
+
+static void
+mode_tree_free_items(struct mode_tree_list *mtl)
+{
+	struct mode_tree_item	*mti, *mti1;
+
+	TAILQ_FOREACH_SAFE(mti, mtl, entry, mti1) {
+		TAILQ_REMOVE(mtl, mti, entry);
+		mode_tree_free_item(mti);
+	}
+}
+
+static void
+mode_tree_clear_lines(struct mode_tree_data *mtd)
+{
+	free(mtd->line_list);
+	mtd->line_list = NULL;
+	mtd->line_size = 0;
+}
+
+static void
+mode_tree_build_lines(struct mode_tree_data *mtd,
+    struct mode_tree_list *mtl, u_int depth)
+{
+	struct mode_tree_item	*mti;
+	struct mode_tree_line	*line;
+	u_int			 i;
+	int			 flat = 1;
+
+	mtd->depth = depth;
+	TAILQ_FOREACH(mti, mtl, entry) {
+		mtd->line_list = xreallocarray(mtd->line_list,
+		    mtd->line_size + 1, sizeof *mtd->line_list);
+
+		line = &mtd->line_list[mtd->line_size++];
+		line->item = mti;
+		line->depth = depth;
+		line->last = (mti == TAILQ_LAST(mtl, mode_tree_list));
+
+		mti->line = (mtd->line_size - 1);
+		if (!TAILQ_EMPTY(&mti->children))
+			flat = 0;
+		if (mti->expanded)
+			mode_tree_build_lines(mtd, &mti->children, depth + 1);
+	}
+	TAILQ_FOREACH(mti, mtl, entry) {
+		for (i = 0; i < mtd->line_size; i++) {
+			line = &mtd->line_list[i];
+			if (line->item == mti)
+				line->flat = flat;
+		}
+	}
+}
+
+static void
+mode_tree_clear_tagged(struct mode_tree_list *mtl)
+{
+	struct mode_tree_item	*mti;
+
+	TAILQ_FOREACH(mti, mtl, entry) {
+		mti->tagged = 0;
+		mode_tree_clear_tagged(&mti->children);
+	}
+}
+
+static void
+mode_tree_set_current(struct mode_tree_data *mtd, uint64_t tag)
+{
+	u_int	i;
+
+	for (i = 0; i < mtd->line_size; i++) {
+		if (mtd->line_list[i].item->tag == tag)
+			break;
+	}
+	if (i != mtd->line_size) {
+		mtd->current = i;
+		if (mtd->current > mtd->height - 1)
+			mtd->offset = 1 + mtd->current - mtd->height;
+		else
+			mtd->offset = 0;
+	} else {
+		mtd->current = 0;
+		mtd->offset = 0;
+	}
+}
+
+void
+mode_tree_up(struct mode_tree_data *mtd, int wrap)
+{
+	if (mtd->current == 0) {
+		if (wrap) {
+			mtd->current = mtd->line_size - 1;
+			if (mtd->line_size >= mtd->height)
+				mtd->offset = mtd->line_size - mtd->height;
+		}
+	} else {
+		mtd->current--;
+		if (mtd->current < mtd->offset)
+			mtd->offset--;
+	}
+}
+
+void
+mode_tree_down(struct mode_tree_data *mtd, int wrap)
+{
+	if (mtd->current == mtd->line_size - 1) {
+		if (wrap) {
+			mtd->current = 0;
+			mtd->offset = 0;
+		}
+	} else {
+		mtd->current++;
+		if (mtd->current > mtd->offset + mtd->height - 1)
+			mtd->offset++;
+	}
+}
+
+void *
+mode_tree_get_current(struct mode_tree_data *mtd)
+{
+	return (mtd->line_list[mtd->current].item->itemdata);
+}
+
+u_int
+mode_tree_count_tagged(struct mode_tree_data *mtd)
+{
+	struct mode_tree_item	*mti;
+	u_int			 i, tagged;
+
+	tagged = 0;
+	for (i = 0; i < mtd->line_size; i++) {
+		mti = mtd->line_list[i].item;
+		if (mti->tagged)
+			tagged++;
+	}
+	return (tagged);
+}
+
+void
+mode_tree_each_tagged(struct mode_tree_data *mtd, void (*cb)(void *, void *,
+    key_code), key_code key, int current)
+{
+	struct mode_tree_item	*mti;
+	u_int			 i;
+	int			 fired;
+
+	fired = 0;
+	for (i = 0; i < mtd->line_size; i++) {
+		mti = mtd->line_list[i].item;
+		if (mti->tagged) {
+			fired = 1;
+			cb(mtd->modedata, mti->itemdata, key);
+		}
+	}
+	if (!fired && current) {
+		mti = mtd->line_list[mtd->current].item;
+		cb(mtd->modedata, mti->itemdata, key);
+	}
+}
+
+struct mode_tree_data *
+mode_tree_start(struct window_pane *wp, struct args *args,
+    void (*buildcb)(void *, u_int, uint64_t *, const char *),
+    struct screen *(*drawcb)(void *, void *, u_int, u_int),
+    int (*searchcb)(void *, void *, const char *), void *modedata,
+    const char **sort_list, u_int sort_size, struct screen **s)
+{
+	struct mode_tree_data	*mtd;
+	const char		*sort;
+	u_int			 i;
+
+	mtd = xcalloc(1, sizeof *mtd);
+	mtd->references = 1;
+
+	mtd->wp = wp;
+	mtd->modedata = modedata;
+
+	mtd->sort_list = sort_list;
+	mtd->sort_size = sort_size;
+	mtd->sort_type = 0;
+
+	mtd->preview = !args_has(args, 'N');
+
+	sort = args_get(args, 'O');
+	if (sort != NULL) {
+		for (i = 0; i < sort_size; i++) {
+			if (strcasecmp(sort, sort_list[i]) == 0)
+				mtd->sort_type = i;
+		}
+	}
+
+	if (args_has(args, 'f'))
+		mtd->filter = xstrdup(args_get(args, 'f'));
+	else
+		mtd->filter = NULL;
+
+	mtd->buildcb = buildcb;
+	mtd->drawcb = drawcb;
+	mtd->searchcb = searchcb;
+
+	TAILQ_INIT(&mtd->children);
+
+	*s = &mtd->screen;
+	screen_init(*s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
+	(*s)->mode &= ~MODE_CURSOR;
+
+	return (mtd);
+}
+
+void
+mode_tree_build(struct mode_tree_data *mtd)
+{
+	struct screen	*s = &mtd->screen;
+	uint64_t	 tag;
+
+	if (mtd->line_list != NULL)
+		tag = mtd->line_list[mtd->current].item->tag;
+	else
+		tag = 0;
+
+	TAILQ_CONCAT(&mtd->saved, &mtd->children, entry);
+	TAILQ_INIT(&mtd->children);
+
+	mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, mtd->filter);
+	if (TAILQ_EMPTY(&mtd->children))
+		mtd->buildcb(mtd->modedata, mtd->sort_type, &tag, NULL);
+
+	mode_tree_free_items(&mtd->saved);
+	TAILQ_INIT(&mtd->saved);
+
+	mode_tree_clear_lines(mtd);
+	mode_tree_build_lines(mtd, &mtd->children, 0);
+
+	mode_tree_set_current(mtd, tag);
+
+	mtd->width = screen_size_x(s);
+	if (mtd->preview) {
+		mtd->height = (screen_size_y(s) / 3) * 2;
+		if (mtd->height > mtd->line_size)
+			mtd->height = screen_size_y(s) / 2;
+		if (mtd->height < 10)
+			mtd->height = screen_size_y(s);
+		if (screen_size_y(s) - mtd->height < 2)
+			mtd->height = screen_size_y(s);
+	} else
+		mtd->height = screen_size_y(s);
+}
+
+static void
+mode_tree_remove_ref(struct mode_tree_data *mtd)
+{
+	if (--mtd->references == 0)
+		free(mtd);
+}
+
+void
+mode_tree_free(struct mode_tree_data *mtd)
+{
+	mode_tree_free_items(&mtd->children);
+	mode_tree_clear_lines(mtd);
+	screen_free(&mtd->screen);
+
+	free(mtd->search);
+	free(mtd->filter);
+
+	mtd->dead = 1;
+	mode_tree_remove_ref(mtd);
+}
+
+void
+mode_tree_resize(struct mode_tree_data *mtd, u_int sx, u_int sy)
+{
+	struct screen	*s = &mtd->screen;
+
+	screen_resize(s, sx, sy, 0);
+
+	mode_tree_build(mtd);
+	mode_tree_draw(mtd);
+
+	mtd->wp->flags |= PANE_REDRAW;
+}
+
+struct mode_tree_item *
+mode_tree_add(struct mode_tree_data *mtd, struct mode_tree_item *parent,
+    void *itemdata, uint64_t tag, const char *name, const char *text,
+    int expanded)
+{
+	struct mode_tree_item	*mti, *saved;
+
+	log_debug("%s: %llu, %s %s", __func__, (unsigned long long)tag,
+	    name, text);
+
+	mti = xcalloc(1, sizeof *mti);
+	mti->parent = parent;
+	mti->itemdata = itemdata;
+
+	mti->tag = tag;
+	mti->name = xstrdup(name);
+	mti->text = xstrdup(text);
+
+	saved = mode_tree_find_item(&mtd->saved, tag);
+	if (saved != NULL) {
+		if (parent == NULL || (parent != NULL && parent->expanded))
+			mti->tagged = saved->tagged;
+		mti->expanded = saved->expanded;
+	} else if (expanded == -1)
+		mti->expanded = 1;
+	else
+		mti->expanded = expanded;
+
+	TAILQ_INIT(&mti->children);
+
+	if (parent != NULL)
+		TAILQ_INSERT_TAIL(&parent->children, mti, entry);
+	else
+		TAILQ_INSERT_TAIL(&mtd->children, mti, entry);
+
+	return (mti);
+}
+
+void
+mode_tree_remove(struct mode_tree_data *mtd, struct mode_tree_item *mti)
+{
+	struct mode_tree_item	*parent = mti->parent;
+
+	if (parent != NULL)
+		TAILQ_REMOVE(&parent->children, mti, entry);
+	else
+		TAILQ_REMOVE(&mtd->children, mti, entry);
+	mode_tree_free_item(mti);
+}
+
+void
+mode_tree_draw(struct mode_tree_data *mtd)
+{
+	struct window_pane	*wp = mtd->wp;
+	struct screen		*s = &mtd->screen, *box = NULL;
+	struct mode_tree_line	*line;
+	struct mode_tree_item	*mti;
+	struct options		*oo = wp->window->options;
+	struct screen_write_ctx	 ctx;
+	struct grid_cell	 gc0, gc;
+	u_int			 w, h, i, j, sy, box_x, box_y;
+	char			*text, *start, key[7];
+	const char		*tag, *symbol;
+	size_t			 size;
+	int			 keylen;
+
+	if (mtd->line_size == 0)
+		return;
+
+	memcpy(&gc0, &grid_default_cell, sizeof gc0);
+	memcpy(&gc, &grid_default_cell, sizeof gc);
+	style_apply(&gc, oo, "mode-style");
+
+	w = mtd->width;
+	h = mtd->height;
+
+	screen_write_start(&ctx, NULL, s);
+	screen_write_clearscreen(&ctx, 8);
+
+	if (mtd->line_size > 10)
+		keylen = 6;
+	else
+		keylen = 4;
+
+	for (i = 0; i < mtd->line_size; i++) {
+		if (i < mtd->offset)
+			continue;
+		if (i > mtd->offset + h - 1)
+			break;
+
+		line = &mtd->line_list[i];
+		mti = line->item;
+
+		screen_write_cursormove(&ctx, 0, i - mtd->offset);
+
+		if (i < 10)
+			snprintf(key, sizeof key, "(%c)  ", '0' + i);
+		else if (i < 36)
+			snprintf(key, sizeof key, "(M-%c)", 'a' + (i - 10));
+		else
+			*key = '\0';
+
+		if (line->flat)
+			symbol = "";
+		else if (TAILQ_EMPTY(&mti->children))
+			symbol = "  ";
+		else if (mti->expanded)
+			symbol = "- ";
+		else
+			symbol = "+ ";
+
+		if (line->depth == 0)
+			start = xstrdup(symbol);
+		else {
+			size = (4 * line->depth) + 32;
+
+			start = xcalloc(1, size);
+			for (j = 1; j < line->depth; j++) {
+				if (mti->parent != NULL &&
+				    mtd->line_list[mti->parent->line].last)
+					strlcat(start, "    ", size);
+				else
+					strlcat(start, "\001x\001   ", size);
+			}
+			if (line->last)
+				strlcat(start, "\001mq\001> ", size);
+			else
+				strlcat(start, "\001tq\001> ", size);
+			strlcat(start, symbol, size);
+		}
+
+		if (mti->tagged)
+			tag = "*";
+		else
+			tag = "";
+		xasprintf(&text, "%-*s%s%s%s: %s", keylen, key, start,
+		    mti->name, tag, mti->text);
+		free(start);
+
+		if (mti->tagged) {
+			gc.attr ^= GRID_ATTR_BRIGHT;
+			gc0.attr ^= GRID_ATTR_BRIGHT;
+		}
+
+		if (i != mtd->current) {
+			screen_write_puts(&ctx, &gc0, "%.*s", w, text);
+			screen_write_clearendofline(&ctx, 8);
+		} else
+			screen_write_puts(&ctx, &gc, "%-*.*s", w, w, text);
+		free(text);
+
+		if (mti->tagged) {
+			gc.attr ^= GRID_ATTR_BRIGHT;
+			gc0.attr ^= GRID_ATTR_BRIGHT;
+		}
+	}
+
+	sy = screen_size_y(s);
+	if (!mtd->preview || sy <= 4 || h <= 4 || sy - h <= 4 || w <= 4) {
+		screen_write_stop(&ctx);
+		return;
+	}
+
+	line = &mtd->line_list[mtd->current];
+	mti = line->item;
+
+	screen_write_cursormove(&ctx, 0, h);
+	screen_write_box(&ctx, w, sy - h);
+
+	xasprintf(&text, " %s (sort: %s) ", mti->name,
+	    mtd->sort_list[mtd->sort_type]);
+	if (w - 2 >= strlen(text)) {
+		screen_write_cursormove(&ctx, 1, h);
+		screen_write_puts(&ctx, &gc0, "%s", text);
+	}
+	free(text);
+
+	box_x = w - 4;
+	box_y = sy - h - 2;
+
+	if (box_x != 0 && box_y != 0)
+		box = mtd->drawcb(mtd->modedata, mti->itemdata, box_x, box_y);
+	if (box != NULL) {
+		screen_write_cursormove(&ctx, 2, h + 1);
+		screen_write_copy(&ctx, box, 0, 0, box_x, box_y, NULL, NULL);
+
+		screen_free(box);
+	}
+
+	screen_write_stop(&ctx);
+}
+
+static struct mode_tree_item *
+mode_tree_search_for(struct mode_tree_data *mtd)
+{
+	struct mode_tree_item	*mti, *last, *next;
+
+	if (mtd->search == NULL)
+		return (NULL);
+
+	mti = last = mtd->line_list[mtd->current].item;
+	for (;;) {
+		if (!TAILQ_EMPTY(&mti->children))
+			mti = TAILQ_FIRST(&mti->children);
+		else if ((next = TAILQ_NEXT(mti, entry)) != NULL)
+			mti = next;
+		else {
+			for (;;) {
+				mti = mti->parent;
+				if (mti == NULL)
+					break;
+				if ((next = TAILQ_NEXT(mti, entry)) != NULL) {
+					mti = next;
+					break;
+				}
+			}
+		}
+		if (mti == NULL)
+			mti = TAILQ_FIRST(&mtd->children);
+		if (mti == last)
+			break;
+
+		if (mtd->searchcb == NULL) {
+			if (strstr(mti->name, mtd->search) != NULL)
+				return (mti);
+			continue;
+		}
+		if (mtd->searchcb(mtd->modedata, mti->itemdata, mtd->search))
+			return (mti);
+	}
+	return (NULL);
+}
+
+static void
+mode_tree_search_set(struct mode_tree_data *mtd)
+{
+	struct mode_tree_item	*mti, *loop;
+	uint64_t		 tag;
+
+	mti = mode_tree_search_for(mtd);
+	if (mti == NULL)
+		return;
+	tag = mti->tag;
+
+	loop = mti->parent;
+	while (loop != NULL) {
+		loop->expanded = 1;
+		loop = loop->parent;
+	}
+
+	mode_tree_build(mtd);
+	mode_tree_set_current(mtd, tag);
+	mode_tree_draw(mtd);
+	mtd->wp->flags |= PANE_REDRAW;
+}
+
+static int
+mode_tree_search_callback(__unused struct client *c, void *data, const char *s,
+    __unused int done)
+{
+	struct mode_tree_data	*mtd = data;
+
+	if (mtd->dead)
+		return (0);
+
+	free(mtd->search);
+	if (s == NULL || *s == '\0') {
+		mtd->search = NULL;
+		return (0);
+	}
+	mtd->search = xstrdup(s);
+	mode_tree_search_set(mtd);
+
+	return (0);
+}
+
+static void
+mode_tree_search_free(void *data)
+{
+	mode_tree_remove_ref(data);
+}
+
+static int
+mode_tree_filter_callback(__unused struct client *c, void *data, const char *s,
+    __unused int done)
+{
+	struct mode_tree_data	*mtd = data;
+
+	if (mtd->dead)
+		return (0);
+
+	if (mtd->filter != NULL)
+		free(mtd->filter);
+	if (s == NULL || *s == '\0')
+		mtd->filter = NULL;
+	else
+		mtd->filter = xstrdup(s);
+
+	mode_tree_build(mtd);
+	mode_tree_draw(mtd);
+	mtd->wp->flags |= PANE_REDRAW;
+
+	return (0);
+}
+
+static void
+mode_tree_filter_free(void *data)
+{
+	mode_tree_remove_ref(data);
+}
+
+int
+mode_tree_key(struct mode_tree_data *mtd, struct client *c, key_code *key,
+    struct mouse_event *m)
+{
+	struct mode_tree_line	*line;
+	struct mode_tree_item	*current, *parent;
+	u_int			 i, x, y;
+	int			 choice;
+	key_code		 tmp;
+
+	if (*key == KEYC_MOUSEDOWN1_PANE) {
+		if (cmd_mouse_at(mtd->wp, m, &x, &y, 0) != 0) {
+			*key = KEYC_NONE;
+			return (0);
+		}
+		if (x > mtd->width || y > mtd->height) {
+			*key = KEYC_NONE;
+			return (0);
+		}
+		if (mtd->offset + y < mtd->line_size) {
+			mtd->current = mtd->offset + y;
+			*key = '\r';
+			return (0);
+		}
+	}
+
+	line = &mtd->line_list[mtd->current];
+	current = line->item;
+
+	choice = -1;
+	if (*key >= '0' && *key <= '9')
+		choice = (*key) - '0';
+	else if (((*key) & KEYC_MASK_MOD) == KEYC_ESCAPE) {
+		tmp = (*key) & KEYC_MASK_KEY;
+		if (tmp >= 'a' && tmp <= 'z')
+			choice = 10 + (tmp - 'a');
+	}
+	if (choice != -1) {
+		if ((u_int)choice > mtd->line_size - 1) {
+			*key = KEYC_NONE;
+			return (0);
+		}
+		mtd->current = choice;
+		*key = '\r';
+		return (0);
+	}
+
+	switch (*key) {
+	case 'q':
+	case '\033': 
+		return (1);
+	case KEYC_UP:
+	case 'k':
+	case KEYC_WHEELUP_PANE:
+		mode_tree_up(mtd, 1);
+		break;
+	case KEYC_DOWN:
+	case 'j':
+	case KEYC_WHEELDOWN_PANE:
+		mode_tree_down(mtd, 1);
+		break;
+	case KEYC_PPAGE:
+	case '\002': 
+		for (i = 0; i < mtd->height; i++) {
+			if (mtd->current == 0)
+				break;
+			mode_tree_up(mtd, 1);
+		}
+		break;
+	case KEYC_NPAGE:
+	case '\006': 
+		for (i = 0; i < mtd->height; i++) {
+			if (mtd->current == mtd->line_size - 1)
+				break;
+			mode_tree_down(mtd, 1);
+		}
+		break;
+	case KEYC_HOME:
+		mtd->current = 0;
+		mtd->offset = 0;
+		break;
+	case KEYC_END:
+		mtd->current = mtd->line_size - 1;
+		if (mtd->current > mtd->height - 1)
+			mtd->offset = mtd->current - mtd->height;
+		else
+			mtd->offset = 0;
+		break;
+	case 't':
+
+		if (!current->tagged) {
+			parent = current->parent;
+			while (parent != NULL) {
+				parent->tagged = 0;
+				parent = parent->parent;
+			}
+			mode_tree_clear_tagged(&current->children);
+			current->tagged = 1;
+		} else
+			current->tagged = 0;
+		mode_tree_down(mtd, 0);
+		break;
+	case 'T':
+		for (i = 0; i < mtd->line_size; i++)
+			mtd->line_list[i].item->tagged = 0;
+		break;
+	case '\024': 
+		for (i = 0; i < mtd->line_size; i++) {
+			if (mtd->line_list[i].item->parent == NULL)
+				mtd->line_list[i].item->tagged = 1;
+			else
+				mtd->line_list[i].item->tagged = 0;
+		}
+		break;
+	case 'O':
+		mtd->sort_type++;
+		if (mtd->sort_type == mtd->sort_size)
+			mtd->sort_type = 0;
+		mode_tree_build(mtd);
+		break;
+	case KEYC_LEFT:
+	case '-':
+		if (line->flat || !current->expanded)
+			current = current->parent;
+		if (current == NULL)
+			mode_tree_up(mtd, 0);
+		else {
+			current->expanded = 0;
+			mtd->current = current->line;
+			mode_tree_build(mtd);
+		}
+		break;
+	case KEYC_RIGHT:
+	case '+':
+		if (line->flat || current->expanded)
+			mode_tree_down(mtd, 0);
+		else if (!line->flat) {
+			current->expanded = 1;
+			mode_tree_build(mtd);
+		}
+		break;
+	case '\023': 
+		mtd->references++;
+		status_prompt_set(c, "(search) ", "",
+		    mode_tree_search_callback, mode_tree_search_free, mtd,
+		    PROMPT_NOFORMAT);
+		break;
+	case 'n':
+		mode_tree_search_set(mtd);
+		break;
+	case 'f':
+		mtd->references++;
+		status_prompt_set(c, "(filter) ", mtd->filter,
+		    mode_tree_filter_callback, mode_tree_filter_free, mtd,
+		    PROMPT_NOFORMAT);
+		break;
+	case 'v':
+		mtd->preview = !mtd->preview;
+		mode_tree_build(mtd);
+
+
+		if (mtd->preview && mtd->current > mtd->height - 1) {
+			mtd->offset = mtd->current - mtd->height;
+			mtd->current--;
+		}
+		break;
+	}
+	return (0);
+}
+
+void
+mode_tree_run_command(struct client *c, struct cmd_find_state *fs,
+    const char *template, const char *name)
+{
+	struct cmdq_item	*new_item;
+	struct cmd_list		*cmdlist;
+	char			*command, *cause;
+
+	command = cmd_template_replace(template, name, 1);
+	if (command == NULL || *command == '\0') {
+		free(command);
+		return;
+	}
+
+	cmdlist = cmd_string_parse(command, NULL, 0, &cause);
+	if (cmdlist == NULL) {
+		if (cause != NULL && c != NULL) {
+			*cause = toupper((u_char)*cause);
+			status_message_set(c, "%s", cause);
+		}
+		free(cause);
+	} else {
+		new_item = cmdq_get_command(cmdlist, fs, NULL, 0);
+		cmdq_append(c, new_item);
+		cmd_list_free(cmdlist);
+	}
+
+	free(command);
+}

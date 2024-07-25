@@ -1,4 +1,10 @@
+c_projects/obs-studio/58c4f0ac/C/curr/plugins/obs-ffmpeg/obs-ffmpeg-audio-encoders.c
+c_projects/obs-studio/58c4f0ac/C/prev/plugins/obs-ffmpeg/obs-ffmpeg-aac.c
+c_projects/obs-studio/7b402245/C/curr/libobs/obs-source.c
+c_projects/obs-studio/7b402245/C/prev/libobs/obs-source.c
 c_projects/obs-studio/8a59d68e/C/curr/libobs/obs-properties.c
 c_projects/obs-studio/8a59d68e/C/prev/libobs/obs-properties.c
-c_projects/obs-studio/daf5a4b9/C/curr/libobs/obs-internal.h
+c_projects/obs-studio/ccfd57d1/C/curr/libobs-opengl/gl-shader.c
+c_projects/obs-studio/ccfd57d1/C/prev/libobs-opengl/gl-shader.c
+c_projects/obs-studio/daf5a4b9/C/curr/libobs/obs.h
 c_projects/obs-studio/daf5a4b9/C/prev/libobs/obs-internal.h

@@ -1,0 +1,2 @@
+c_projects/vim/1dd45fb4/C/curr/src/gui_w32.c
+c_projects/vim/1dd45fb4/C/prev/src/gui_w32.c

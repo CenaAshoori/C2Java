@@ -1,952 +1,952 @@
-#include "common.h"
-#include "procfile.h"
-
-#define PF_PREFIX "PROCFILE"
-
-#define PFWORDS_INCREASE_STEP 200
-#define PFLINES_INCREASE_STEP 10
-#define PROCFILE_INCREMENT_BUFFER 512
-
-int procfile_adaptive_initial_allocation = 0;
-
+#include "common.h"
+#include "procfile.h"
+
+#define PF_PREFIX "PROCFILE"
+
+#define PFWORDS_INCREASE_STEP 200
+#define PFLINES_INCREASE_STEP 10
+#define PROCFILE_INCREMENT_BUFFER 512
+
+int procfile_adaptive_initial_allocation = 0;
 
 
-size_t procfile_max_lines = PFLINES_INCREASE_STEP;
-size_t procfile_max_words = PFWORDS_INCREASE_STEP;
-size_t procfile_max_allocation = PROCFILE_INCREMENT_BUFFER;
-
-
 
-
-char *procfile_filename(procfile *ff) {
-    if(ff->filename[0]) return ff->filename;
-
-    char buffer[FILENAME_MAX + 1];
-    snprintfz(buffer, FILENAME_MAX, "/proc/self/fd/%d", ff->fd);
-
-    ssize_t l = readlink(buffer, ff->filename, FILENAME_MAX);
-    if(unlikely(l == -1))
-        snprintfz(ff->filename, FILENAME_MAX, "unknown filename for fd %d", ff->fd);
-    else
-        ff->filename[l] = '\0';
-
+size_t procfile_max_lines = PFLINES_INCREASE_STEP;
+size_t procfile_max_words = PFWORDS_INCREASE_STEP;
+size_t procfile_max_allocation = PROCFILE_INCREMENT_BUFFER;
 
 
-
-    return ff->filename;
-}
-
 
 
-
-static inline pfwords *pfwords_add(pfwords *fw, char *str) NEVERNULL;
-static inline pfwords *pfwords_add(pfwords *fw, char *str) {
+char *procfile_filename(procfile *ff) {
+    if(ff->filename[0]) return ff->filename;
 
-
-    if(unlikely(fw->len == fw->size)) {
+    char buffer[FILENAME_MAX + 1];
+    snprintfz(buffer, FILENAME_MAX, "/proc/self/fd/%d", ff->fd);
 
-
-        fw = reallocz(fw, sizeof(pfwords) + (fw->size + PFWORDS_INCREASE_STEP) * sizeof(char *));
-        fw->size += PFWORDS_INCREASE_STEP;
-    }
-
-    fw->words[fw->len++] = str;
-
-    return fw;
-}
-
-static inline pfwords *pfwords_new(void) NEVERNULL;
-static inline pfwords *pfwords_new(void) {
-
-
-    size_t size = (procfile_adaptive_initial_allocation) ? procfile_max_words : PFWORDS_INCREASE_STEP;
-
-    pfwords *new = mallocz(sizeof(pfwords) + size * sizeof(char *));
-    new->len = 0;
-    new->size = size;
-    return new;
-}
-
-static inline void pfwords_reset(pfwords *fw) {
-
-    fw->len = 0;
-}
-
-static inline void pfwords_free(pfwords *fw) {
-
-
-    freez(fw);
-}
-
-
+    ssize_t l = readlink(buffer, ff->filename, FILENAME_MAX);
+    if(unlikely(l == -1))
+        snprintfz(ff->filename, FILENAME_MAX, "unknown filename for fd %d", ff->fd);
+    else
+        ff->filename[l] = '\0';
 
 
-
-static inline pflines *pflines_add(pflines *fl, size_t first_word) NEVERNULL;
-static inline pflines *pflines_add(pflines *fl, size_t first_word) {
-
-
-    if(unlikely(fl->len == fl->size)) {
-
-
-        fl = reallocz(fl, sizeof(pflines) + (fl->size + PFLINES_INCREASE_STEP) * sizeof(ffline));
-        fl->size += PFLINES_INCREASE_STEP;
-    }
-
-    fl->lines[fl->len].words = 0;
-    fl->lines[fl->len++].first = first_word;
-
-    return fl;
-}
-
-static inline pflines *pflines_new(void) NEVERNULL;
-static inline pflines *pflines_new(void) {
-
-
-    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_words : PFLINES_INCREASE_STEP;
-
-    pflines *new = mallocz(sizeof(pflines) + size * sizeof(ffline));
-    new->len = 0;
-    new->size = size;
-    return new;
-}
-
-static inline void pflines_reset(pflines *fl) {
-
-
-    fl->len = 0;
-}
-
-static inline void pflines_free(pflines *fl) {
-
-
-    freez(fl);
-}
-
-
 
 
-
-void procfile_close(procfile *ff) {
-    if(unlikely(!ff)) return;
-
-    debug(D_PROCFILE, PF_PREFIX ": Closing file '%s'", procfile_filename(ff));
-
-    if(likely(ff->lines)) pflines_free(ff->lines);
-    if(likely(ff->words)) pfwords_free(ff->words);
-
-    if(likely(ff->fd != -1)) close(ff->fd);
-    freez(ff);
-}
-
-static void _procfile_parser_add_word(procfile *ff, size_t line, char *begin, char *end) {
-    *end = '\0';
-    ff->words = pfwords_add(ff->words, begin);
-    ff->lines->lines[line].words++;
-}
-
-static void procfile_parser(procfile *ff) {
+    return ff->filename;
+}
 
-
+
+
+
+static inline pfwords *pfwords_add(pfwords *fw, char *str) NEVERNULL;
+static inline pfwords *pfwords_add(pfwords *fw, char *str) {
+
+
+    if(unlikely(fw->len == fw->size)) {
+
+
+        fw = reallocz(fw, sizeof(pfwords) + (fw->size + PFWORDS_INCREASE_STEP) * sizeof(char *));
+        fw->size += PFWORDS_INCREASE_STEP;
+    }
+
+    fw->words[fw->len++] = str;
+
+    return fw;
+}
+
+static inline pfwords *pfwords_new(void) NEVERNULL;
+static inline pfwords *pfwords_new(void) {
+
+
+    size_t size = (procfile_adaptive_initial_allocation) ? procfile_max_words : PFWORDS_INCREASE_STEP;
+
+    pfwords *new = mallocz(sizeof(pfwords) + size * sizeof(char *));
+    new->len = 0;
+    new->size = size;
+    return new;
+}
+
+static inline void pfwords_reset(pfwords *fw) {
+
+    fw->len = 0;
+}
+
+static inline void pfwords_free(pfwords *fw) {
+
+
+    freez(fw);
+}
+
+
+
+
+
+static inline pflines *pflines_add(pflines *fl, size_t first_word) NEVERNULL;
+static inline pflines *pflines_add(pflines *fl, size_t first_word) {
+
+
+    if(unlikely(fl->len == fl->size)) {
+
+
+        fl = reallocz(fl, sizeof(pflines) + (fl->size + PFLINES_INCREASE_STEP) * sizeof(ffline));
+        fl->size += PFLINES_INCREASE_STEP;
+    }
+
+    fl->lines[fl->len].words = 0;
+    fl->lines[fl->len++].first = first_word;
+
+    return fl;
+}
+
+static inline pflines *pflines_new(void) NEVERNULL;
+static inline pflines *pflines_new(void) {
+
+
+    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_words : PFLINES_INCREASE_STEP;
+
+    pflines *new = mallocz(sizeof(pflines) + size * sizeof(ffline));
+    new->len = 0;
+    new->size = size;
+    return new;
+}
+
+static inline void pflines_reset(pflines *fl) {
+
+
+    fl->len = 0;
+}
+
+static inline void pflines_free(pflines *fl) {
+
+
+    freez(fl);
+}
+
+
+
+
+
+void procfile_close(procfile *ff) {
+    if(unlikely(!ff)) return;
+
+    debug(D_PROCFILE, PF_PREFIX ": Closing file '%s'", procfile_filename(ff));
+
+    if(likely(ff->lines)) pflines_free(ff->lines);
+    if(likely(ff->words)) pfwords_free(ff->words);
+
+    if(likely(ff->fd != -1)) close(ff->fd);
+    freez(ff);
+}
+
+static void _procfile_parser_add_word(procfile *ff, size_t line, char *begin, char *end) {
+    *end = '\0';
+    ff->words = pfwords_add(ff->words, begin);
+    ff->lines->lines[line].words++;
+}
+
+static void procfile_parser(procfile *ff) {
+
+
     char  *s = ff->data                 
         , *e = &ff->data[ff->len]       
         , *t = ff->data;                
-
 
-    PF_CHAR_TYPE *separators = ff->separators;
-
+
+    PF_CHAR_TYPE *separators = ff->separators;
+
     char quote = 0;                     
-
-    size_t
+
+    size_t
           l = 0                         
         , w = 0                         
         , opened = 0;                   
-
-    ff->lines = pflines_add(ff->lines, w);
-
-    while(s < e) {
-        PF_CHAR_TYPE ct = separators[(unsigned char)(*s)];
-
 
-        if(likely(ct == PF_CHAR_IS_WORD)) {
-            s++;
-        }
-        else if(likely(ct == PF_CHAR_IS_SEPARATOR)) {
-            if(likely(!quote && !opened)) {
-                if (likely(s != t)) {
+    ff->lines = pflines_add(ff->lines, w);
 
-                    _procfile_parser_add_word(ff, l, t, s);
-                    w++;
-                    t = ++s;
-                }
-                else {
+    while(s < e) {
+        PF_CHAR_TYPE ct = separators[(unsigned char)(*s)];
 
 
-                    t = ++s;
-                }
-            }
-            else {
+        if(likely(ct == PF_CHAR_IS_WORD)) {
+            s++;
+        }
+        else if(likely(ct == PF_CHAR_IS_SEPARATOR)) {
+            if(likely(!quote && !opened)) {
+                if (likely(s != t)) {
 
-                s++;
-            }
-        }
-        else if(likely(ct == PF_CHAR_IS_NEWLINE)) {
+                    _procfile_parser_add_word(ff, l, t, s);
+                    w++;
+                    t = ++s;
+                }
+                else {
 
-            _procfile_parser_add_word(ff, l, t, s);
-            w++;
-            t = ++s;
-
 
-
-            ff->lines = pflines_add(ff->lines, w);
-            l++;
-        }
-        else if(likely(ct == PF_CHAR_IS_QUOTE)) {
-            if(unlikely(!quote && s == t)) {
+                    t = ++s;
+                }
+            }
+            else {
 
-                quote = *s;
-                t = ++s;
-            }
-            else if(unlikely(quote && quote == *s)) {
+                s++;
+            }
+        }
+        else if(likely(ct == PF_CHAR_IS_NEWLINE)) {
 
-                quote = 0;
-
-                _procfile_parser_add_word(ff, l, t, s);
-                w++;
-                t = ++s;
-            }
-            else
-                s++;
-        }
-        else if(likely(ct == PF_CHAR_IS_OPEN)) {
-            if(s == t) {
-                opened++;
-                t = ++s;
-            }
-            else if(opened) {
-                opened++;
-                s++;
-            }
-            else
-                s++;
-        }
-        else if(likely(ct == PF_CHAR_IS_CLOSE)) {
-            if(opened) {
-                opened--;
-
-                if(!opened) {
-                    _procfile_parser_add_word(ff, l, t, s);
-                    w++;
-                    t = ++s;
-                }
-                else
-                    s++;
-            }
-            else
-                s++;
-        }
-        else
-            fatal("Internal Error: procfile_readall() does not handle all the cases.");
-    }
-
-    if(likely(s > t && t < e)) {
+            _procfile_parser_add_word(ff, l, t, s);
+            w++;
+            t = ++s;
 
-        if(unlikely(ff->len >= ff->size)) {
 
-            s = &ff->data[ff->size - 1];
-        }
-
-        _procfile_parser_add_word(ff, l, t, s);
-    }
-}
-
-procfile *procfile_readall(procfile *ff) {
 
-
+            ff->lines = pflines_add(ff->lines, w);
+            l++;
+        }
+        else if(likely(ct == PF_CHAR_IS_QUOTE)) {
+            if(unlikely(!quote && s == t)) {
+
+                quote = *s;
+                t = ++s;
+            }
+            else if(unlikely(quote && quote == *s)) {
+
+                quote = 0;
+
+                _procfile_parser_add_word(ff, l, t, s);
+                w++;
+                t = ++s;
+            }
+            else
+                s++;
+        }
+        else if(likely(ct == PF_CHAR_IS_OPEN)) {
+            if(s == t) {
+                opened++;
+                t = ++s;
+            }
+            else if(opened) {
+                opened++;
+                s++;
+            }
+            else
+                s++;
+        }
+        else if(likely(ct == PF_CHAR_IS_CLOSE)) {
+            if(opened) {
+                opened--;
+
+                if(!opened) {
+                    _procfile_parser_add_word(ff, l, t, s);
+                    w++;
+                    t = ++s;
+                }
+                else
+                    s++;
+            }
+            else
+                s++;
+        }
+        else
+            fatal("Internal Error: procfile_readall() does not handle all the cases.");
+    }
+
+    if(likely(s > t && t < e)) {
+
+        if(unlikely(ff->len >= ff->size)) {
+
+            s = &ff->data[ff->size - 1];
+        }
+
+        _procfile_parser_add_word(ff, l, t, s);
+    }
+}
+
+procfile *procfile_readall(procfile *ff) {
+
+
     ff->len = 0;    
     ssize_t r = 1;  
-    while(r > 0) {
-        ssize_t s = ff->len;
-        ssize_t x = ff->size - s;
-
-        if(unlikely(!x)) {
-            debug(D_PROCFILE, PF_PREFIX ": Expanding data buffer for file '%s'.", procfile_filename(ff));
-            ff = reallocz(ff, sizeof(procfile) + ff->size + PROCFILE_INCREMENT_BUFFER);
-            ff->size += PROCFILE_INCREMENT_BUFFER;
-        }
-
-        debug(D_PROCFILE, "Reading file '%s', from position %zd with length %zd", procfile_filename(ff), s, (ssize_t)(ff->size - s));
-        r = read(ff->fd, &ff->data[s], ff->size - s);
-        if(unlikely(r == -1)) {
-            if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot read from file '%s' on fd %d", procfile_filename(ff), ff->fd);
-            procfile_close(ff);
-            return NULL;
-        }
-
-        ff->len += r;
-    }
-
+    while(r > 0) {
+        ssize_t s = ff->len;
+        ssize_t x = ff->size - s;
 
-    if(unlikely(lseek(ff->fd, 0, SEEK_SET) == -1)) {
-        if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot rewind on file '%s'.", procfile_filename(ff));
-        procfile_close(ff);
-        return NULL;
-    }
-
-    pflines_reset(ff->lines);
-    pfwords_reset(ff->words);
-    procfile_parser(ff);
-
-    if(unlikely(procfile_adaptive_initial_allocation)) {
-        if(unlikely(ff->len > procfile_max_allocation)) procfile_max_allocation = ff->len;
-        if(unlikely(ff->lines->len > procfile_max_lines)) procfile_max_lines = ff->lines->len;
-        if(unlikely(ff->words->len > procfile_max_words)) procfile_max_words = ff->words->len;
-    }
-
+        if(unlikely(!x)) {
+            debug(D_PROCFILE, PF_PREFIX ": Expanding data buffer for file '%s'.", procfile_filename(ff));
+            ff = reallocz(ff, sizeof(procfile) + ff->size + PROCFILE_INCREMENT_BUFFER);
+            ff->size += PROCFILE_INCREMENT_BUFFER;
+        }
 
-    return ff;
-}
-
-static inline void procfile_set_separators(procfile *ff, const char *separators) {
-    static PF_CHAR_TYPE def[256];
-    static char initilized = 0;
-
-    if(unlikely(!initilized)) {
+        debug(D_PROCFILE, "Reading file '%s', from position %zd with length %zd", procfile_filename(ff), s, (ssize_t)(ff->size - s));
+        r = read(ff->fd, &ff->data[s], ff->size - s);
+        if(unlikely(r == -1)) {
+            if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot read from file '%s' on fd %d", procfile_filename(ff), ff->fd);
+            procfile_close(ff);
+            return NULL;
+        }
+
+        ff->len += r;
+    }
 
 
+    if(unlikely(lseek(ff->fd, 0, SEEK_SET) == -1)) {
+        if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot rewind on file '%s'.", procfile_filename(ff));
+        procfile_close(ff);
+        return NULL;
+    }
 
-        int i = 256;
-        while(i--) {
-            if(unlikely(i == '\n' || i == '\r'))
-                def[i] = PF_CHAR_IS_NEWLINE;
-
-            else if(unlikely(isspace(i) || !isprint(i)))
-                def[i] = PF_CHAR_IS_SEPARATOR;
-
-            else
-                def[i] = PF_CHAR_IS_WORD;
-        }
-
-        initilized = 1;
-    }
-
+    pflines_reset(ff->lines);
+    pfwords_reset(ff->words);
+    procfile_parser(ff);
 
-    PF_CHAR_TYPE *ffs = ff->separators, *ffd = def, *ffe = &def[256];
-    while(ffd != ffe)
-        *ffs++ = *ffd++;
-
-
-    if(unlikely(!separators))
-        separators = " \t=|";
-
-    ffs = ff->separators;
-    const char *s = separators;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_SEPARATOR;
-}
-
-void procfile_set_quotes(procfile *ff, const char *quotes) {
-    PF_CHAR_TYPE *ffs = ff->separators;
-
-
-    int i = 256;
-    while(i--)
-        if(unlikely(ffs[i] == PF_CHAR_IS_QUOTE))
-            ffs[i] = PF_CHAR_IS_WORD;
-
-
-    if(unlikely(!quotes || !*quotes))
-        return;
-
-
-    const char *s = quotes;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_QUOTE;
-}
-
-void procfile_set_open_close(procfile *ff, const char *open, const char *close) {
-    PF_CHAR_TYPE *ffs = ff->separators;
-
-
-    int i = 256;
-    while(i--)
-        if(unlikely(ffs[i] == PF_CHAR_IS_OPEN || ffs[i] == PF_CHAR_IS_CLOSE))
-            ffs[i] = PF_CHAR_IS_WORD;
-
-
-    if(unlikely(!open || !*open || !close || !*close))
-        return;
-
-
-    const char *s = open;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_OPEN;
-
-
-    s = close;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_CLOSE;
-}
-
-procfile *procfile_open(const char *filename, const char *separators, uint32_t flags) {
-    debug(D_PROCFILE, PF_PREFIX ": Opening file '%s'", filename);
-
-    int fd = open(filename, O_RDONLY, 0666);
-    if(unlikely(fd == -1)) {
-        if(unlikely(!(flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot open file '%s'", filename);
-        return NULL;
-    }
-
-
-
-    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_allocation : PROCFILE_INCREMENT_BUFFER;
-    procfile *ff = mallocz(sizeof(procfile) + size);
-
-
-    ff->filename[0] = '\0';
-
-    ff->fd = fd;
-    ff->size = size;
-    ff->len = 0;
-    ff->flags = flags;
-
-    ff->lines = pflines_new();
-    ff->words = pfwords_new();
-
-    procfile_set_separators(ff, separators);
-
-    debug(D_PROCFILE, "File '%s' opened.", filename);
-    return ff;
-}
-
-procfile *procfile_reopen(procfile *ff, const char *filename, const char *separators, uint32_t flags) {
-    if(unlikely(!ff)) return procfile_open(filename, separators, flags);
-
-    if(likely(ff->fd != -1)) {
-
-        close(ff->fd);
-    }
-
-    ff->fd = open(filename, O_RDONLY, 0666);
-    if(unlikely(ff->fd == -1)) {
-        procfile_close(ff);
-        return NULL;
-    }
-
-
-
-
-    ff->filename[0] = '\0';
-    ff->flags = flags;
-
-
-    if(likely(separators)) procfile_set_separators(ff, separators);
-
-    return ff;
-}
-
+    if(unlikely(procfile_adaptive_initial_allocation)) {
+        if(unlikely(ff->len > procfile_max_allocation)) procfile_max_allocation = ff->len;
+        if(unlikely(ff->lines->len > procfile_max_lines)) procfile_max_lines = ff->lines->len;
+        if(unlikely(ff->words->len > procfile_max_words)) procfile_max_words = ff->words->len;
+    }
 
 
-
-void procfile_print(procfile *ff) {
-    size_t lines = procfile_lines(ff), l;
-    char *s;
-
-    debug(D_PROCFILE, "File '%s' with %zu lines and %zu words", procfile_filename(ff), ff->lines->len, ff->words->len);
-
-    for(l = 0; likely(l < lines) ;l++) {
-        size_t words = procfile_linewords(ff, l);
-
-        debug(D_PROCFILE, " line %zu starts at word %zu and has %zu words", l, ff->lines->lines[l].first, ff->lines->lines[l].words);
-
-        size_t w;
-        for(w = 0; likely(w < words) ;w++) {
-            s = procfile_lineword(ff, l, w);
-            debug(D_PROCFILE, "     [%zu.%zu] '%s'", l, w, s);
-        }
-    }
-}
+    return ff;
+}
+
+static inline void procfile_set_separators(procfile *ff, const char *separators) {
+    static PF_CHAR_TYPE def[256];
+    static char initilized = 0;
+
+    if(unlikely(!initilized)) {
+
+
+
+        int i = 256;
+        while(i--) {
+            if(unlikely(i == '\n' || i == '\r'))
+                def[i] = PF_CHAR_IS_NEWLINE;
+
+            else if(unlikely(isspace(i) || !isprint(i)))
+                def[i] = PF_CHAR_IS_SEPARATOR;
+
+            else
+                def[i] = PF_CHAR_IS_WORD;
+        }
+
+        initilized = 1;
+    }
+
+
+    PF_CHAR_TYPE *ffs = ff->separators, *ffd = def, *ffe = &def[256];
+    while(ffd != ffe)
+        *ffs++ = *ffd++;
+
+
+    if(unlikely(!separators))
+        separators = " \t=|";
+
+    ffs = ff->separators;
+    const char *s = separators;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_SEPARATOR;
+}
+
+void procfile_set_quotes(procfile *ff, const char *quotes) {
+    PF_CHAR_TYPE *ffs = ff->separators;
+
+
+    int i = 256;
+    while(i--)
+        if(unlikely(ffs[i] == PF_CHAR_IS_QUOTE))
+            ffs[i] = PF_CHAR_IS_WORD;
+
+
+    if(unlikely(!quotes || !*quotes))
+        return;
+
+
+    const char *s = quotes;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_QUOTE;
+}
+
+void procfile_set_open_close(procfile *ff, const char *open, const char *close) {
+    PF_CHAR_TYPE *ffs = ff->separators;
+
+
+    int i = 256;
+    while(i--)
+        if(unlikely(ffs[i] == PF_CHAR_IS_OPEN || ffs[i] == PF_CHAR_IS_CLOSE))
+            ffs[i] = PF_CHAR_IS_WORD;
+
+
+    if(unlikely(!open || !*open || !close || !*close))
+        return;
+
+
+    const char *s = open;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_OPEN;
+
+
+    s = close;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_CLOSE;
+}
+
+procfile *procfile_open(const char *filename, const char *separators, uint32_t flags) {
+    debug(D_PROCFILE, PF_PREFIX ": Opening file '%s'", filename);
+
+    int fd = open(filename, O_RDONLY, 0666);
+    if(unlikely(fd == -1)) {
+        if(unlikely(!(flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot open file '%s'", filename);
+        return NULL;
+    }
+
+
+
+    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_allocation : PROCFILE_INCREMENT_BUFFER;
+    procfile *ff = mallocz(sizeof(procfile) + size);
+
+
+    ff->filename[0] = '\0';
+
+    ff->fd = fd;
+    ff->size = size;
+    ff->len = 0;
+    ff->flags = flags;
+
+    ff->lines = pflines_new();
+    ff->words = pfwords_new();
+
+    procfile_set_separators(ff, separators);
+
+    debug(D_PROCFILE, "File '%s' opened.", filename);
+    return ff;
+}
+
+procfile *procfile_reopen(procfile *ff, const char *filename, const char *separators, uint32_t flags) {
+    if(unlikely(!ff)) return procfile_open(filename, separators, flags);
+
+    if(likely(ff->fd != -1)) {
+
+        close(ff->fd);
+    }
+
+    ff->fd = open(filename, O_RDONLY, 0666);
+    if(unlikely(ff->fd == -1)) {
+        procfile_close(ff);
+        return NULL;
+    }
+
+
+
+
+    ff->filename[0] = '\0';
+    ff->flags = flags;
+
+
+    if(likely(separators)) procfile_set_separators(ff, separators);
+
+    return ff;
+}
+
+
+
+
+void procfile_print(procfile *ff) {
+    size_t lines = procfile_lines(ff), l;
+    char *s;
+
+    debug(D_PROCFILE, "File '%s' with %zu lines and %zu words", procfile_filename(ff), ff->lines->len, ff->words->len);
+
+    for(l = 0; likely(l < lines) ;l++) {
+        size_t words = procfile_linewords(ff, l);
+
+        debug(D_PROCFILE, " line %zu starts at word %zu and has %zu words", l, ff->lines->lines[l].first, ff->lines->lines[l].words);
+
+        size_t w;
+        for(w = 0; likely(w < words) ;w++) {
+            s = procfile_lineword(ff, l, w);
+            debug(D_PROCFILE, "     [%zu.%zu] '%s'", l, w, s);
+        }
+    }
+}
 
 <code block>
-#include "common.h"
-#include "procfile.h"
-
-#define PF_PREFIX "PROCFILE"
-
-#define PFWORDS_INCREASE_STEP 200
-#define PFLINES_INCREASE_STEP 10
-#define PROCFILE_INCREMENT_BUFFER 512
-
-int procfile_adaptive_initial_allocation = 0;
-
+#include "common.h"
+#include "procfile.h"
+
+#define PF_PREFIX "PROCFILE"
+
+#define PFWORDS_INCREASE_STEP 200
+#define PFLINES_INCREASE_STEP 10
+#define PROCFILE_INCREMENT_BUFFER 512
+
+int procfile_adaptive_initial_allocation = 0;
 
 
-size_t procfile_max_lines = PFLINES_INCREASE_STEP;
-size_t procfile_max_words = PFWORDS_INCREASE_STEP;
-size_t procfile_max_allocation = PROCFILE_INCREMENT_BUFFER;
-
-
 
-
-char *procfile_filename(procfile *ff) {
-    if(ff->filename[0]) return ff->filename;
-
-    char buffer[FILENAME_MAX + 1];
-    snprintfz(buffer, FILENAME_MAX, "/proc/self/fd/%d", ff->fd);
-
-    ssize_t l = readlink(buffer, ff->filename, FILENAME_MAX);
-    if(unlikely(l == -1))
-        snprintfz(ff->filename, FILENAME_MAX, "unknown filename for fd %d", ff->fd);
-    else
-        ff->filename[l] = '\0';
-
+size_t procfile_max_lines = PFLINES_INCREASE_STEP;
+size_t procfile_max_words = PFWORDS_INCREASE_STEP;
+size_t procfile_max_allocation = PROCFILE_INCREMENT_BUFFER;
 
 
-
-    return ff->filename;
-}
-
 
 
-
-static inline pfwords *pfwords_add(pfwords *fw, char *str) NEVERNULL;
-static inline pfwords *pfwords_add(pfwords *fw, char *str) {
+char *procfile_filename(procfile *ff) {
+    if(ff->filename[0]) return ff->filename;
 
-
-    if(unlikely(fw->len == fw->size)) {
+    char buffer[FILENAME_MAX + 1];
+    snprintfz(buffer, FILENAME_MAX, "/proc/self/fd/%d", ff->fd);
 
-
-        fw = reallocz(fw, sizeof(pfwords) + (fw->size + PFWORDS_INCREASE_STEP) * sizeof(char *));
-        fw->size += PFWORDS_INCREASE_STEP;
-    }
-
-    fw->words[fw->len++] = str;
-
-    return fw;
-}
-
-static inline pfwords *pfwords_new(void) NEVERNULL;
-static inline pfwords *pfwords_new(void) {
-
-
-    size_t size = (procfile_adaptive_initial_allocation) ? procfile_max_words : PFWORDS_INCREASE_STEP;
-
-    pfwords *new = mallocz(sizeof(pfwords) + size * sizeof(char *));
-    new->len = 0;
-    new->size = size;
-    return new;
-}
-
-static inline void pfwords_reset(pfwords *fw) {
-
-    fw->len = 0;
-}
-
-static inline void pfwords_free(pfwords *fw) {
-
-
-    freez(fw);
-}
-
-
+    ssize_t l = readlink(buffer, ff->filename, FILENAME_MAX);
+    if(unlikely(l == -1))
+        snprintfz(ff->filename, FILENAME_MAX, "unknown filename for fd %d", ff->fd);
+    else
+        ff->filename[l] = '\0';
 
 
-
-static inline pflines *pflines_add(pflines *fl, size_t first_word) NEVERNULL;
-static inline pflines *pflines_add(pflines *fl, size_t first_word) {
-
-
-    if(unlikely(fl->len == fl->size)) {
-
-
-        fl = reallocz(fl, sizeof(pflines) + (fl->size + PFLINES_INCREASE_STEP) * sizeof(ffline));
-        fl->size += PFLINES_INCREASE_STEP;
-    }
-
-    fl->lines[fl->len].words = 0;
-    fl->lines[fl->len++].first = first_word;
-
-    return fl;
-}
-
-static inline pflines *pflines_new(void) NEVERNULL;
-static inline pflines *pflines_new(void) {
-
-
-    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_words : PFLINES_INCREASE_STEP;
-
-    pflines *new = mallocz(sizeof(pflines) + size * sizeof(ffline));
-    new->len = 0;
-    new->size = size;
-    return new;
-}
-
-static inline void pflines_reset(pflines *fl) {
-
-
-    fl->len = 0;
-}
-
-static inline void pflines_free(pflines *fl) {
-
-
-    freez(fl);
-}
-
-
 
 
-
-void procfile_close(procfile *ff) {
-    if(unlikely(!ff)) return;
-
-    debug(D_PROCFILE, PF_PREFIX ": Closing file '%s'", procfile_filename(ff));
-
-    if(likely(ff->lines)) pflines_free(ff->lines);
-    if(likely(ff->words)) pfwords_free(ff->words);
-
-    if(likely(ff->fd != -1)) close(ff->fd);
-    freez(ff);
-}
-
-__attribute__((noinline))
-static void _procfile_parser_add_word(procfile *ff, size_t line, char *begin, char *end) {
-    *end = '\0';
-    ff->words = pfwords_add(ff->words, begin);
-    ff->lines->lines[line].words++;
-}
-
-__attribute__((noinline))
-static char *_procfile_parser_skip_word(char *begin, char *end, PF_CHAR_TYPE *ct, PF_CHAR_TYPE *separators) {
-    PF_CHAR_TYPE c = PF_CHAR_IS_NEWLINE;
-
-    while(begin < end && (c = separators[(unsigned char)(*begin)]) == PF_CHAR_IS_WORD)
-        begin++;
-
-    *ct = c;
-    return begin;
-}
-
-static void procfile_parser(procfile *ff) {
+    return ff->filename;
+}
 
-
+
+
+
+static inline pfwords *pfwords_add(pfwords *fw, char *str) NEVERNULL;
+static inline pfwords *pfwords_add(pfwords *fw, char *str) {
+
+
+    if(unlikely(fw->len == fw->size)) {
+
+
+        fw = reallocz(fw, sizeof(pfwords) + (fw->size + PFWORDS_INCREASE_STEP) * sizeof(char *));
+        fw->size += PFWORDS_INCREASE_STEP;
+    }
+
+    fw->words[fw->len++] = str;
+
+    return fw;
+}
+
+static inline pfwords *pfwords_new(void) NEVERNULL;
+static inline pfwords *pfwords_new(void) {
+
+
+    size_t size = (procfile_adaptive_initial_allocation) ? procfile_max_words : PFWORDS_INCREASE_STEP;
+
+    pfwords *new = mallocz(sizeof(pfwords) + size * sizeof(char *));
+    new->len = 0;
+    new->size = size;
+    return new;
+}
+
+static inline void pfwords_reset(pfwords *fw) {
+
+    fw->len = 0;
+}
+
+static inline void pfwords_free(pfwords *fw) {
+
+
+    freez(fw);
+}
+
+
+
+
+
+static inline pflines *pflines_add(pflines *fl, size_t first_word) NEVERNULL;
+static inline pflines *pflines_add(pflines *fl, size_t first_word) {
+
+
+    if(unlikely(fl->len == fl->size)) {
+
+
+        fl = reallocz(fl, sizeof(pflines) + (fl->size + PFLINES_INCREASE_STEP) * sizeof(ffline));
+        fl->size += PFLINES_INCREASE_STEP;
+    }
+
+    fl->lines[fl->len].words = 0;
+    fl->lines[fl->len++].first = first_word;
+
+    return fl;
+}
+
+static inline pflines *pflines_new(void) NEVERNULL;
+static inline pflines *pflines_new(void) {
+
+
+    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_words : PFLINES_INCREASE_STEP;
+
+    pflines *new = mallocz(sizeof(pflines) + size * sizeof(ffline));
+    new->len = 0;
+    new->size = size;
+    return new;
+}
+
+static inline void pflines_reset(pflines *fl) {
+
+
+    fl->len = 0;
+}
+
+static inline void pflines_free(pflines *fl) {
+
+
+    freez(fl);
+}
+
+
+
+
+
+void procfile_close(procfile *ff) {
+    if(unlikely(!ff)) return;
+
+    debug(D_PROCFILE, PF_PREFIX ": Closing file '%s'", procfile_filename(ff));
+
+    if(likely(ff->lines)) pflines_free(ff->lines);
+    if(likely(ff->words)) pfwords_free(ff->words);
+
+    if(likely(ff->fd != -1)) close(ff->fd);
+    freez(ff);
+}
+
+__attribute__((noinline))
+static void _procfile_parser_add_word(procfile *ff, size_t line, char *begin, char *end) {
+    *end = '\0';
+    ff->words = pfwords_add(ff->words, begin);
+    ff->lines->lines[line].words++;
+}
+
+__attribute__((noinline))
+static char *_procfile_parser_skip_word(char *begin, char *end, PF_CHAR_TYPE *ct, PF_CHAR_TYPE *separators) {
+    PF_CHAR_TYPE c = PF_CHAR_IS_NEWLINE;
+
+    while(begin < end && (c = separators[(unsigned char)(*begin)]) == PF_CHAR_IS_WORD)
+        begin++;
+
+    *ct = c;
+    return begin;
+}
+
+static void procfile_parser(procfile *ff) {
+
+
     char  *s = ff->data                 
         , *e = &ff->data[ff->len]       
         , *t = ff->data;                
-
 
-    PF_CHAR_TYPE *separators = ff->separators;
-
+
+    PF_CHAR_TYPE *separators = ff->separators;
+
     char quote = 0;                     
-
-    size_t
+
+    size_t
           l = 0                         
         , w = 0                         
         , opened = 0;                   
-
-    PF_CHAR_TYPE ct;
-
-    ff->lines = pflines_add(ff->lines, w);
-
-    while((s = _procfile_parser_skip_word(s, e, &ct, separators)) < e) {
 
-
+    PF_CHAR_TYPE ct;
 
-        if(likely(ct == PF_CHAR_IS_WORD)) {
-            s++;
-        }
-        else if(likely(ct == PF_CHAR_IS_SEPARATOR)) {
-            if(likely(!quote && !opened)) {
-                if (likely(s != t)) {
+    ff->lines = pflines_add(ff->lines, w);
 
-                    _procfile_parser_add_word(ff, l, t, s);
-                    w++;
-                    t = ++s;
-                }
-                else {
+    while((s = _procfile_parser_skip_word(s, e, &ct, separators)) < e) {
 
 
-                    t = ++s;
-                }
-            }
-            else {
 
-                s++;
-            }
-        }
-        else if(likely(ct == PF_CHAR_IS_NEWLINE)) {
+        if(likely(ct == PF_CHAR_IS_WORD)) {
+            s++;
+        }
+        else if(likely(ct == PF_CHAR_IS_SEPARATOR)) {
+            if(likely(!quote && !opened)) {
+                if (likely(s != t)) {
 
-            _procfile_parser_add_word(ff, l, t, s);
-            w++;
-            t = ++s;
-
+                    _procfile_parser_add_word(ff, l, t, s);
+                    w++;
+                    t = ++s;
+                }
+                else {
 
-
-            ff->lines = pflines_add(ff->lines, w);
-            l++;
-        }
-        else if(likely(ct == PF_CHAR_IS_QUOTE)) {
-            if(unlikely(!quote && s == t)) {
 
-                quote = *s;
-                t = ++s;
-            }
-            else if(unlikely(quote && quote == *s)) {
+                    t = ++s;
+                }
+            }
+            else {
 
-                quote = 0;
-
-                _procfile_parser_add_word(ff, l, t, s);
-                w++;
-                t = ++s;
-            }
-            else
-                s++;
-        }
-        else if(likely(ct == PF_CHAR_IS_OPEN)) {
-            if(s == t) {
-                opened++;
-                t = ++s;
-            }
-            else if(opened) {
-                opened++;
-                s++;
-            }
-            else
-                s++;
-        }
-        else if(likely(ct == PF_CHAR_IS_CLOSE)) {
-            if(opened) {
-                opened--;
-
-                if(!opened) {
-                    _procfile_parser_add_word(ff, l, t, s);
-                    w++;
-                    t = ++s;
-                }
-                else
-                    s++;
-            }
-            else
-                s++;
-        }
-        else
-            fatal("Internal Error: procfile_readall() does not handle all the cases.");
-    }
-
-    if(likely(s > t && t < e)) {
+                s++;
+            }
+        }
+        else if(likely(ct == PF_CHAR_IS_NEWLINE)) {
 
-        if(unlikely(ff->len >= ff->size)) {
+            _procfile_parser_add_word(ff, l, t, s);
+            w++;
+            t = ++s;
 
-            s = &ff->data[ff->size - 1];
-        }
-
-        _procfile_parser_add_word(ff, l, t, s);
-    }
-}
-
-procfile *procfile_readall(procfile *ff) {
 
-
+
+            ff->lines = pflines_add(ff->lines, w);
+            l++;
+        }
+        else if(likely(ct == PF_CHAR_IS_QUOTE)) {
+            if(unlikely(!quote && s == t)) {
+
+                quote = *s;
+                t = ++s;
+            }
+            else if(unlikely(quote && quote == *s)) {
+
+                quote = 0;
+
+                _procfile_parser_add_word(ff, l, t, s);
+                w++;
+                t = ++s;
+            }
+            else
+                s++;
+        }
+        else if(likely(ct == PF_CHAR_IS_OPEN)) {
+            if(s == t) {
+                opened++;
+                t = ++s;
+            }
+            else if(opened) {
+                opened++;
+                s++;
+            }
+            else
+                s++;
+        }
+        else if(likely(ct == PF_CHAR_IS_CLOSE)) {
+            if(opened) {
+                opened--;
+
+                if(!opened) {
+                    _procfile_parser_add_word(ff, l, t, s);
+                    w++;
+                    t = ++s;
+                }
+                else
+                    s++;
+            }
+            else
+                s++;
+        }
+        else
+            fatal("Internal Error: procfile_readall() does not handle all the cases.");
+    }
+
+    if(likely(s > t && t < e)) {
+
+        if(unlikely(ff->len >= ff->size)) {
+
+            s = &ff->data[ff->size - 1];
+        }
+
+        _procfile_parser_add_word(ff, l, t, s);
+    }
+}
+
+procfile *procfile_readall(procfile *ff) {
+
+
     ff->len = 0;    
     ssize_t r = 1;  
-    while(r > 0) {
-        ssize_t s = ff->len;
-        ssize_t x = ff->size - s;
-
-        if(unlikely(!x)) {
-            debug(D_PROCFILE, PF_PREFIX ": Expanding data buffer for file '%s'.", procfile_filename(ff));
-            ff = reallocz(ff, sizeof(procfile) + ff->size + PROCFILE_INCREMENT_BUFFER);
-            ff->size += PROCFILE_INCREMENT_BUFFER;
-        }
-
-        debug(D_PROCFILE, "Reading file '%s', from position %zd with length %zd", procfile_filename(ff), s, (ssize_t)(ff->size - s));
-        r = read(ff->fd, &ff->data[s], ff->size - s);
-        if(unlikely(r == -1)) {
-            if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot read from file '%s' on fd %d", procfile_filename(ff), ff->fd);
-            procfile_close(ff);
-            return NULL;
-        }
-
-        ff->len += r;
-    }
-
+    while(r > 0) {
+        ssize_t s = ff->len;
+        ssize_t x = ff->size - s;
 
-    if(unlikely(lseek(ff->fd, 0, SEEK_SET) == -1)) {
-        if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot rewind on file '%s'.", procfile_filename(ff));
-        procfile_close(ff);
-        return NULL;
-    }
-
-    pflines_reset(ff->lines);
-    pfwords_reset(ff->words);
-    procfile_parser(ff);
-
-    if(unlikely(procfile_adaptive_initial_allocation)) {
-        if(unlikely(ff->len > procfile_max_allocation)) procfile_max_allocation = ff->len;
-        if(unlikely(ff->lines->len > procfile_max_lines)) procfile_max_lines = ff->lines->len;
-        if(unlikely(ff->words->len > procfile_max_words)) procfile_max_words = ff->words->len;
-    }
-
+        if(unlikely(!x)) {
+            debug(D_PROCFILE, PF_PREFIX ": Expanding data buffer for file '%s'.", procfile_filename(ff));
+            ff = reallocz(ff, sizeof(procfile) + ff->size + PROCFILE_INCREMENT_BUFFER);
+            ff->size += PROCFILE_INCREMENT_BUFFER;
+        }
 
-    return ff;
-}
-
-static inline void procfile_set_separators(procfile *ff, const char *separators) {
-    static PF_CHAR_TYPE def[256];
-    static char initilized = 0;
-
-    if(unlikely(!initilized)) {
+        debug(D_PROCFILE, "Reading file '%s', from position %zd with length %zd", procfile_filename(ff), s, (ssize_t)(ff->size - s));
+        r = read(ff->fd, &ff->data[s], ff->size - s);
+        if(unlikely(r == -1)) {
+            if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot read from file '%s' on fd %d", procfile_filename(ff), ff->fd);
+            procfile_close(ff);
+            return NULL;
+        }
+
+        ff->len += r;
+    }
 
 
+    if(unlikely(lseek(ff->fd, 0, SEEK_SET) == -1)) {
+        if(unlikely(!(ff->flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot rewind on file '%s'.", procfile_filename(ff));
+        procfile_close(ff);
+        return NULL;
+    }
 
-        int i = 256;
-        while(i--) {
-            if(unlikely(i == '\n' || i == '\r'))
-                def[i] = PF_CHAR_IS_NEWLINE;
-
-            else if(unlikely(isspace(i) || !isprint(i)))
-                def[i] = PF_CHAR_IS_SEPARATOR;
-
-            else
-                def[i] = PF_CHAR_IS_WORD;
-        }
-
-        initilized = 1;
-    }
-
+    pflines_reset(ff->lines);
+    pfwords_reset(ff->words);
+    procfile_parser(ff);
 
-    PF_CHAR_TYPE *ffs = ff->separators, *ffd = def, *ffe = &def[256];
-    while(ffd != ffe)
-        *ffs++ = *ffd++;
-
-
-    if(unlikely(!separators))
-        separators = " \t=|";
-
-    ffs = ff->separators;
-    const char *s = separators;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_SEPARATOR;
-}
-
-void procfile_set_quotes(procfile *ff, const char *quotes) {
-    PF_CHAR_TYPE *ffs = ff->separators;
-
-
-    int i = 256;
-    while(i--)
-        if(unlikely(ffs[i] == PF_CHAR_IS_QUOTE))
-            ffs[i] = PF_CHAR_IS_WORD;
-
-
-    if(unlikely(!quotes || !*quotes))
-        return;
-
-
-    const char *s = quotes;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_QUOTE;
-}
-
-void procfile_set_open_close(procfile *ff, const char *open, const char *close) {
-    PF_CHAR_TYPE *ffs = ff->separators;
-
-
-    int i = 256;
-    while(i--)
-        if(unlikely(ffs[i] == PF_CHAR_IS_OPEN || ffs[i] == PF_CHAR_IS_CLOSE))
-            ffs[i] = PF_CHAR_IS_WORD;
-
-
-    if(unlikely(!open || !*open || !close || !*close))
-        return;
-
-
-    const char *s = open;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_OPEN;
-
-
-    s = close;
-    while(*s)
-        ffs[(int)*s++] = PF_CHAR_IS_CLOSE;
-}
-
-procfile *procfile_open(const char *filename, const char *separators, uint32_t flags) {
-    debug(D_PROCFILE, PF_PREFIX ": Opening file '%s'", filename);
-
-    int fd = open(filename, O_RDONLY, 0666);
-    if(unlikely(fd == -1)) {
-        if(unlikely(!(flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot open file '%s'", filename);
-        return NULL;
-    }
-
-
-
-    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_allocation : PROCFILE_INCREMENT_BUFFER;
-    procfile *ff = mallocz(sizeof(procfile) + size);
-
-
-    ff->filename[0] = '\0';
-
-    ff->fd = fd;
-    ff->size = size;
-    ff->len = 0;
-    ff->flags = flags;
-
-    ff->lines = pflines_new();
-    ff->words = pfwords_new();
-
-    procfile_set_separators(ff, separators);
-
-    debug(D_PROCFILE, "File '%s' opened.", filename);
-    return ff;
-}
-
-procfile *procfile_reopen(procfile *ff, const char *filename, const char *separators, uint32_t flags) {
-    if(unlikely(!ff)) return procfile_open(filename, separators, flags);
-
-    if(likely(ff->fd != -1)) {
-
-        close(ff->fd);
-    }
-
-    ff->fd = open(filename, O_RDONLY, 0666);
-    if(unlikely(ff->fd == -1)) {
-        procfile_close(ff);
-        return NULL;
-    }
-
-
-
-
-    ff->filename[0] = '\0';
-    ff->flags = flags;
-
-
-    if(likely(separators)) procfile_set_separators(ff, separators);
-
-    return ff;
-}
-
+    if(unlikely(procfile_adaptive_initial_allocation)) {
+        if(unlikely(ff->len > procfile_max_allocation)) procfile_max_allocation = ff->len;
+        if(unlikely(ff->lines->len > procfile_max_lines)) procfile_max_lines = ff->lines->len;
+        if(unlikely(ff->words->len > procfile_max_words)) procfile_max_words = ff->words->len;
+    }
 
 
-
-void procfile_print(procfile *ff) {
-    size_t lines = procfile_lines(ff), l;
-    char *s;
-
-    debug(D_PROCFILE, "File '%s' with %zu lines and %zu words", procfile_filename(ff), ff->lines->len, ff->words->len);
-
-    for(l = 0; likely(l < lines) ;l++) {
-        size_t words = procfile_linewords(ff, l);
-
-        debug(D_PROCFILE, " line %zu starts at word %zu and has %zu words", l, ff->lines->lines[l].first, ff->lines->lines[l].words);
-
-        size_t w;
-        for(w = 0; likely(w < words) ;w++) {
-            s = procfile_lineword(ff, l, w);
-            debug(D_PROCFILE, "     [%zu.%zu] '%s'", l, w, s);
-        }
-    }
-}
+    return ff;
+}
+
+static inline void procfile_set_separators(procfile *ff, const char *separators) {
+    static PF_CHAR_TYPE def[256];
+    static char initilized = 0;
+
+    if(unlikely(!initilized)) {
+
+
+
+        int i = 256;
+        while(i--) {
+            if(unlikely(i == '\n' || i == '\r'))
+                def[i] = PF_CHAR_IS_NEWLINE;
+
+            else if(unlikely(isspace(i) || !isprint(i)))
+                def[i] = PF_CHAR_IS_SEPARATOR;
+
+            else
+                def[i] = PF_CHAR_IS_WORD;
+        }
+
+        initilized = 1;
+    }
+
+
+    PF_CHAR_TYPE *ffs = ff->separators, *ffd = def, *ffe = &def[256];
+    while(ffd != ffe)
+        *ffs++ = *ffd++;
+
+
+    if(unlikely(!separators))
+        separators = " \t=|";
+
+    ffs = ff->separators;
+    const char *s = separators;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_SEPARATOR;
+}
+
+void procfile_set_quotes(procfile *ff, const char *quotes) {
+    PF_CHAR_TYPE *ffs = ff->separators;
+
+
+    int i = 256;
+    while(i--)
+        if(unlikely(ffs[i] == PF_CHAR_IS_QUOTE))
+            ffs[i] = PF_CHAR_IS_WORD;
+
+
+    if(unlikely(!quotes || !*quotes))
+        return;
+
+
+    const char *s = quotes;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_QUOTE;
+}
+
+void procfile_set_open_close(procfile *ff, const char *open, const char *close) {
+    PF_CHAR_TYPE *ffs = ff->separators;
+
+
+    int i = 256;
+    while(i--)
+        if(unlikely(ffs[i] == PF_CHAR_IS_OPEN || ffs[i] == PF_CHAR_IS_CLOSE))
+            ffs[i] = PF_CHAR_IS_WORD;
+
+
+    if(unlikely(!open || !*open || !close || !*close))
+        return;
+
+
+    const char *s = open;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_OPEN;
+
+
+    s = close;
+    while(*s)
+        ffs[(int)*s++] = PF_CHAR_IS_CLOSE;
+}
+
+procfile *procfile_open(const char *filename, const char *separators, uint32_t flags) {
+    debug(D_PROCFILE, PF_PREFIX ": Opening file '%s'", filename);
+
+    int fd = open(filename, O_RDONLY, 0666);
+    if(unlikely(fd == -1)) {
+        if(unlikely(!(flags & PROCFILE_FLAG_NO_ERROR_ON_FILE_IO))) error(PF_PREFIX ": Cannot open file '%s'", filename);
+        return NULL;
+    }
+
+
+
+    size_t size = (unlikely(procfile_adaptive_initial_allocation)) ? procfile_max_allocation : PROCFILE_INCREMENT_BUFFER;
+    procfile *ff = mallocz(sizeof(procfile) + size);
+
+
+    ff->filename[0] = '\0';
+
+    ff->fd = fd;
+    ff->size = size;
+    ff->len = 0;
+    ff->flags = flags;
+
+    ff->lines = pflines_new();
+    ff->words = pfwords_new();
+
+    procfile_set_separators(ff, separators);
+
+    debug(D_PROCFILE, "File '%s' opened.", filename);
+    return ff;
+}
+
+procfile *procfile_reopen(procfile *ff, const char *filename, const char *separators, uint32_t flags) {
+    if(unlikely(!ff)) return procfile_open(filename, separators, flags);
+
+    if(likely(ff->fd != -1)) {
+
+        close(ff->fd);
+    }
+
+    ff->fd = open(filename, O_RDONLY, 0666);
+    if(unlikely(ff->fd == -1)) {
+        procfile_close(ff);
+        return NULL;
+    }
+
+
+
+
+    ff->filename[0] = '\0';
+    ff->flags = flags;
+
+
+    if(likely(separators)) procfile_set_separators(ff, separators);
+
+    return ff;
+}
+
+
+
+
+void procfile_print(procfile *ff) {
+    size_t lines = procfile_lines(ff), l;
+    char *s;
+
+    debug(D_PROCFILE, "File '%s' with %zu lines and %zu words", procfile_filename(ff), ff->lines->len, ff->words->len);
+
+    for(l = 0; likely(l < lines) ;l++) {
+        size_t words = procfile_linewords(ff, l);
+
+        debug(D_PROCFILE, " line %zu starts at word %zu and has %zu words", l, ff->lines->lines[l].first, ff->lines->lines[l].words);
+
+        size_t w;
+        for(w = 0; likely(w < words) ;w++) {
+            s = procfile_lineword(ff, l, w);
+            debug(D_PROCFILE, "     [%zu.%zu] '%s'", l, w, s);
+        }
+    }
+}

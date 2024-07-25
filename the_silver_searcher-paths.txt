@@ -1,0 +1,2 @@
+c_projects/the_silver_searcher/634d05f7/C/curr/src/util.c
+c_projects/the_silver_searcher/634d05f7/C/prev/src/main.c
