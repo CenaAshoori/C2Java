@@ -23,6 +23,7 @@ C2Java/darknet/8c5364f5/C/prev/src/yolo.c
 C2Java/darknet/8d9ed0a1/C/curr/src/cost_layer.h
 C2Java/darknet/8d9ed0a1/C/prev/src/cost_layer.h
 C2Java/darknet/9b1774bd/C/curr/src/activations.c
+C2Java/darknet/9b1774bd/C/curr/src/connected_layer.c
 C2Java/darknet/9b1774bd/C/prev/src/connected_layer.c
 C2Java/darknet/afb8b4f9/C/curr/src/demo.c
 C2Java/darknet/afb8b4f9/C/prev/src/coco_demo.c
