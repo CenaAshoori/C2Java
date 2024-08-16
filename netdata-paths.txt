@@ -1,2 +1,2 @@
-c_projects/netdata/c3636a18/C/curr/src/procfile.c
-c_projects/netdata/c3636a18/C/prev/src/procfile.c
+C2Java/netdata/c3636a18/C/curr/src/procfile.c
+C2Java/netdata/c3636a18/C/prev/src/procfile.c

@@ -1,8 +1,8 @@
-c_projects/emscripten/2a57fd9b/C/curr/system/lib/pthread/library_pthread_asmjs.c
-c_projects/emscripten/2a57fd9b/C/prev/system/lib/pthread/library_pthread.c
-c_projects/emscripten/987d0010/C/curr/system/lib/compiler-rt/lib/builtins/muldi3.c
-c_projects/emscripten/987d0010/C/prev/system/lib/compiler-rt/muldi3.c
-c_projects/emscripten/b5313f65/C/curr/system/include/libcxx/support/win32/limits_msvc_win32.h
-c_projects/emscripten/b5313f65/C/prev/system/include/libcxx/support/win32/limits_win32.h
-c_projects/emscripten/eeb03b05/C/curr/tests/sdl_image_prepare_data.c
-c_projects/emscripten/eeb03b05/C/prev/tests/sdl_image_prepare_data.c
+C2Java/emscripten/2a57fd9b/C/curr/system/lib/pthread/library_pthread_asmjs.c
+C2Java/emscripten/2a57fd9b/C/prev/system/lib/pthread/library_pthread.c
+C2Java/emscripten/987d0010/C/curr/system/lib/compiler-rt/lib/builtins/muldi3.c
+C2Java/emscripten/987d0010/C/prev/system/lib/compiler-rt/muldi3.c
+C2Java/emscripten/b5313f65/C/curr/system/include/libcxx/support/win32/limits_msvc_win32.h
+C2Java/emscripten/b5313f65/C/prev/system/include/libcxx/support/win32/limits_win32.h
+C2Java/emscripten/eeb03b05/C/curr/tests/sdl_image_prepare_data.c
+C2Java/emscripten/eeb03b05/C/prev/tests/sdl_image_prepare_data.c

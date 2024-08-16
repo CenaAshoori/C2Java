@@ -1,6 +1,6 @@
-c_projects/tmux/aad4e4dd/C/curr/window-client.c
-c_projects/tmux/aad4e4dd/C/prev/window-choose.c
-c_projects/tmux/c48d09ec/C/curr/environ.c
-c_projects/tmux/c48d09ec/C/prev/environ.c
-c_projects/tmux/f56f09ea/C/curr/mode-tree.c
-c_projects/tmux/f56f09ea/C/prev/mode-tree.c
+C2Java/tmux/aad4e4dd/C/curr/window-client.c
+C2Java/tmux/aad4e4dd/C/prev/window-choose.c
+C2Java/tmux/c48d09ec/C/curr/environ.c
+C2Java/tmux/c48d09ec/C/prev/environ.c
+C2Java/tmux/f56f09ea/C/curr/mode-tree.c
+C2Java/tmux/f56f09ea/C/prev/mode-tree.c

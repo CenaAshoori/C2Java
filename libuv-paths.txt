@@ -1,4 +1,4 @@
-c_projects/libuv/6921d2fc/C/curr/src/unix/pipe.c
-c_projects/libuv/6921d2fc/C/prev/src/unix/pipe.c
-c_projects/libuv/99ae3edf/C/curr/include/uv/bsd.h
-c_projects/libuv/99ae3edf/C/prev/include/uv-bsd.h
+C2Java/libuv/6921d2fc/C/curr/src/unix/pipe.c
+C2Java/libuv/6921d2fc/C/prev/src/unix/pipe.c
+C2Java/libuv/99ae3edf/C/curr/include/uv/bsd.h
+C2Java/libuv/99ae3edf/C/prev/include/uv-bsd.h
