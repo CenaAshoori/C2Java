@@ -88,8 +88,7 @@ int closedir(DIR *dir)
 	FindClose(dir->dd_handle);
 	free(dir);
 	return 0;
-}
-
+}
 <code block>
 #include "../../git-compat-util.h"
 
@@ -191,8 +190,7 @@ int closedir(DIR *dir)
 	FindClose(dir->dd_handle);
 	free(dir);
 	return 0;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "sha1-lookup.h"
@@ -304,8 +302,7 @@ const struct object_id *do_lookup_replace_object(const struct object_id *oid)
 	} while (0 <= pos);
 
 	return cur;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "sha1-lookup.h"
@@ -417,8 +414,7 @@ const struct object_id *do_lookup_replace_object(const struct object_id *oid)
 	} while (0 <= pos);
 
 	return cur;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "exec_cmd.h"
@@ -713,8 +709,7 @@ int execl_git_cmd(const char *cmd, ...)
 
 	argv[argc] = NULL;
 	return execv_git_cmd(argv);
-}
-
+}
 <code block>
 #include "cache.h"
 #include "exec_cmd.h"
@@ -878,8 +873,7 @@ int execl_git_cmd(const char *cmd,...)
 
 	argv[argc] = NULL;
 	return execv_git_cmd(argv);
-}
-
+}
 <code block>
 #include "../cache.h"
 #include "../refs.h"
@@ -4188,8 +4182,7 @@ struct ref_storage_be refs_be_files = {
 	"files",
 	files_ref_store_create,
 	files_transaction_commit
-};
-
+};
 <code block>
 #include "../cache.h"
 #include "../refs.h"
@@ -7499,8 +7492,7 @@ struct ref_storage_be refs_be_files = {
 	"files",
 	files_ref_store_create,
 	files_transaction_commit
-};
-
+};
 <code block>
 #ifndef __ALIAS_H__
 #define __ALIAS_H__
@@ -7510,8 +7502,7 @@ int split_cmdline(char *cmdline, const char ***argv);
 
 const char *split_cmdline_strerror(int cmdline_errno);
 
-#endif
-
+#endif
 <code block>
 #ifndef CACHE_H
 #define CACHE_H
@@ -8923,8 +8914,7 @@ void safe_create_dir(const char *dir, int share);
 
 extern int print_sha1_ellipsis(void);
 
-#endif 
-
+#endif
 <code block>
 #ifndef CACHE_H
 #define CACHE_H
@@ -10341,10 +10331,8 @@ void safe_create_dir(const char *dir, int share);
 
 extern int print_sha1_ellipsis(void);
 
-#endif 
-
+#endif
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "string-list.h"
@@ -12387,10 +12375,8 @@ out:
 	if (map)
 		munmap(map, mapsize);
 	return ret;
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "string-list.h"
@@ -14433,8 +14419,7 @@ out:
 	if (map)
 		munmap(map, mapsize);
 	return ret;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "lockfile.h"
@@ -18388,8 +18373,7 @@ int reflog_expire(const char *refname, const unsigned char *sha1,
 	free(log_file);
 	unlock_ref(lock);
 	return -1;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "lockfile.h"
@@ -22343,11 +22327,8 @@ int reflog_expire(const char *refname, const unsigned char *sha1,
 	free(log_file);
 	unlock_ref(lock);
 	return -1;
-}
-
+}
 <code block>
-
-
 #include "cache.h"
 #include "builtin.h"
 #include "blob.h"
@@ -24586,11 +24567,8 @@ parse_done:
 		printf("num commits: %d\n", num_commits);
 	}
 	return 0;
-}
-
+}
 <code block>
-
-
 #include "cache.h"
 #include "builtin.h"
 #include "blob.h"
@@ -26838,11 +26816,8 @@ parse_done:
 		printf("num commits: %d\n", num_commits);
 	}
 	return 0;
-}
-
+}
 <code block>
-
-
 #include "cache.h"
 #include "color.h"
 #include "refs.h"
@@ -27395,8 +27370,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 		usage_with_options(builtin_branch_usage, options);
 
 	return 0;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "tag.h"
@@ -28165,11 +28139,8 @@ struct commit_list *reduce_heads(struct commit_list *heads)
 	}
 	free(other);
 	return result;
-}
-
+}
 <code block>
-
-
 #include "cache.h"
 #include "color.h"
 #include "refs.h"
@@ -28736,8 +28707,7 @@ int cmd_branch(int argc, const char **argv, const char *prefix)
 		usage_with_options(builtin_branch_usage, options);
 
 	return 0;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "tag.h"
@@ -29491,10 +29461,8 @@ struct commit_list *reduce_heads(struct commit_list *heads)
 	}
 	free(other);
 	return result;
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "advice.h"
@@ -31617,10 +31585,8 @@ int parse_merge_opt(struct merge_options *o, const char *s)
 	else
 		return -1;
 	return 0;
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "advice.h"
@@ -34537,10 +34503,8 @@ int parse_merge_opt(struct merge_options *o, const char *s)
 	else
 		return -1;
 	return 0;
-}
-
+}
 <code block>
-
 #include <limits.h>
 #include "cache.h"
 #include "strbuf.h"
@@ -34680,10 +34644,8 @@ int main(int ac, const char **av) {
 			fprintf(stderr, "cannot parse %s\n", sb.buf);
 	}
 	return 0;
-}
-
+}
 <code block>
-
 #include <limits.h>
 #include "cache.h"
 #include "strbuf.h"
@@ -34823,8 +34785,7 @@ int main(int ac, const char **av) {
 			fprintf(stderr, "cannot parse %s\n", sb.buf);
 	}
 	return 0;
-}
-
+}
 <code block>
 #include "git-compat-util.h"
 #include "cache.h"
@@ -35145,8 +35106,7 @@ void die_if_checked_out(const char *branch)
 		skip_prefix(branch, "refs/heads/", &branch);
 		die(_("'%s' is already checked out at '%s'"), branch, existing);
 	}
-}
-
+}
 <code block>
 #include "cache.h"
 #include "refs.h"
@@ -35225,8 +35185,7 @@ done:
 	closedir(dir);
 
 	return existing;
-}
-
+}
 <code block>
 #include "git-compat-util.h"
 #include "cache.h"
@@ -35620,8 +35579,7 @@ void die_if_checked_out(const char *branch)
 		skip_prefix(branch, "refs/heads/", &branch);
 		die(_("'%s' is already checked out at '%s'"), branch, existing);
 	}
-}
-
+}
 <code block>
 #include "cache.h"
 #include "config.h"
@@ -36633,8 +36591,7 @@ void upload_pack(struct upload_pack_options *options)
 		get_common_commits();
 		create_pack_file();
 	}
-}
-
+}
 <code block>
 #include "cache.h"
 #include "config.h"
@@ -37611,8 +37568,7 @@ void upload_pack(struct upload_pack_options *options)
 		get_common_commits();
 		create_pack_file();
 	}
-}
-
+}
 <code block>
 #include "cache.h"
 #include "diff.h"
@@ -37745,10 +37701,8 @@ int checkout_fast_forward(const struct object_id *head,
 		return error(_("unable to write new index file"));
 	}
 	return 0;
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "builtin.h"
@@ -39846,8 +39800,7 @@ int cmd_am(int argc, const char **argv, const char *prefix)
 	am_state_release(&state);
 
 	return 0;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "lockfile.h"
@@ -39947,10 +39900,8 @@ int checkout_fast_forward(const struct object_id *head,
 		return error(_("unable to write new index file"));
 	}
 	return 0;
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "builtin.h"
@@ -42080,8 +42031,7 @@ int cmd_am(int argc, const char **argv, const char *prefix)
 	am_state_release(&state);
 
 	return 0;
-}
-
+}
 <code block>
 #include "git-compat-util.h"
 #include "parse-options.h"
@@ -42235,11 +42185,8 @@ int parse_opt_string_list(const struct option *opt, const char *arg, int unset)
 int parse_opt_noop_cb(const struct option *opt, const char *arg, int unset)
 {
 	return 0;
-}
-
+}
 <code block>
-
-
 #include "cache.h"
 #include "builtin.h"
 #include "refs.h"
@@ -42944,8 +42891,7 @@ int cmd_tag(int argc, const char **argv, const char *prefix)
 	strbuf_release(&buf);
 	strbuf_release(&ref);
 	return 0;
-}
-
+}
 <code block>
 #include "git-compat-util.h"
 #include "parse-options.h"
@@ -43082,11 +43028,8 @@ int parse_opt_string_list(const struct option *opt, const char *arg, int unset)
 int parse_opt_noop_cb(const struct option *opt, const char *arg, int unset)
 {
 	return 0;
-}
-
+}
 <code block>
-
-
 #include "cache.h"
 #include "builtin.h"
 #include "refs.h"
@@ -43808,8 +43751,7 @@ int cmd_tag(int argc, const char **argv, const char *prefix)
 	strbuf_release(&buf);
 	strbuf_release(&ref);
 	return 0;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "config.h"
@@ -47891,8 +47833,7 @@ int rearrange_squash(void)
 	todo_list_release(&todo_list);
 
 	return res;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "config.h"
@@ -51965,8 +51906,7 @@ int rearrange_squash(void)
 	todo_list_release(&todo_list);
 
 	return res;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "refs.h"
@@ -52860,8 +52800,7 @@ int strbuf_normalize_path(struct strbuf *src)
 	strbuf_swap(src, &dst);
 	strbuf_release(&dst);
 	return 0;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "refs.h"
@@ -53725,8 +53664,7 @@ int strbuf_normalize_path(struct strbuf *src)
 	strbuf_swap(src, &dst);
 	strbuf_release(&dst);
 	return 0;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "exec-cmd.h"
@@ -53890,8 +53828,7 @@ int execl_git_cmd(const char *cmd,...)
 
 	argv[argc] = NULL;
 	return execv_git_cmd(argv);
-}
-
+}
 <code block>
 #include "cache.h"
 #include "exec_cmd.h"
@@ -54055,8 +53992,7 @@ int execl_git_cmd(const char *cmd,...)
 
 	argv[argc] = NULL;
 	return execv_git_cmd(argv);
-}
-
+}
 <code block>
 static const struct interval zero_width[] = {
 { 0x0300, 0x036F },
@@ -54479,8 +54415,7 @@ static const struct interval double_width[] = {
 { 0x1F9D0, 0x1F9E6 },
 { 0x20000, 0x2FFFD },
 { 0x30000, 0x3FFFD }
-};
-
+};
 <code block>
 static const struct interval zero_width[] = {
 { 0x0300, 0x036F },
@@ -54903,8 +54838,7 @@ static const struct interval double_width[] = {
 { 0x1F9D0, 0x1F9E6 },
 { 0x20000, 0x2FFFD },
 { 0x30000, 0x3FFFD }
-};
-
+};
 <code block>
 #include "cache.h"
 #include "refs.h"
@@ -57119,8 +57053,7 @@ char *shorten_unambiguous_ref(const char *refname, int strict)
 
 	free(short_name);
 	return xstrdup(refname);
-}
-
+}
 <code block>
 #include "cache.h"
 #include "refs.h"
@@ -59327,10 +59260,8 @@ char *shorten_unambiguous_ref(const char *refname, int strict)
 
 	free(short_name);
 	return xstrdup(refname);
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "dir.h"
 #include "refs.h"
@@ -60484,8 +60415,7 @@ void free_pathspec(struct pathspec *pathspec)
 {
 	free(pathspec->items);
 	pathspec->items = NULL;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "dir.h"
@@ -61190,10 +61120,8 @@ int check_repository_format(void)
 const char *setup_git_directory(void)
 {
 	return setup_git_directory_gently(NULL);
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "dir.h"
 #include "refs.h"
@@ -62339,8 +62267,7 @@ void free_pathspec(struct pathspec *pathspec)
 {
 	free(pathspec->items);
 	pathspec->items = NULL;
-}
-
+}
 <code block>
 #include "cache.h"
 #include "dir.h"
@@ -63052,10 +62979,8 @@ int check_repository_format(void)
 const char *setup_git_directory(void)
 {
 	return setup_git_directory_gently(NULL);
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "string-list.h"
@@ -65098,10 +65023,8 @@ out:
 	if (map)
 		munmap(map, mapsize);
 	return ret;
-}
-
+}
 <code block>
-
 #include "cache.h"
 #include "config.h"
 #include "string-list.h"
@@ -67144,8 +67067,7 @@ out:
 	if (map)
 		munmap(map, mapsize);
 	return ret;
-}
-
+}
 <code block>
 #include "../cache.h"
 #include "../refs.h"
@@ -70305,8 +70227,7 @@ int reflog_expire(const char *refname, const unsigned char *sha1,
 	free(log_file);
 	unlock_ref(lock);
 	return -1;
-}
-
+}
 <code block>
 #include "../cache.h"
 #include "../refs.h"
@@ -73466,4 +73387,4 @@ int reflog_expire(const char *refname, const unsigned char *sha1,
 	free(log_file);
 	unlock_ref(lock);
 	return -1;
-}
+}

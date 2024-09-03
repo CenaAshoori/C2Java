@@ -1,5 +1,3 @@
-
-
 #include "uv.h"
 #include "internal.h"
 
@@ -233,11 +231,8 @@ void uv__pipe_accept(EV_P_ ev_io* watcher, int revents) {
   }
 
   errno = saved_errno;
-}
-
+}
 <code block>
-
-
 #include "uv.h"
 #include "internal.h"
 
@@ -469,11 +464,8 @@ void uv__pipe_accept(EV_P_ ev_io* watcher, int revents) {
   }
 
   errno = saved_errno;
-}
-
+}
 <code block>
-
-
 #ifndef UV_BSD_H
 #define UV_BSD_H
 
@@ -486,11 +478,8 @@ void uv__pipe_accept(EV_P_ ev_io* watcher, int revents) {
 
 #define UV_HAVE_KQUEUE 1
 
-#endif 
-
+#endif
 <code block>
-
-
 #ifndef UV_BSD_H
 #define UV_BSD_H
 
@@ -503,4 +492,4 @@ void uv__pipe_accept(EV_P_ ev_io* watcher, int revents) {
 
 #define UV_HAVE_KQUEUE 1
 
-#endif 
+#endif

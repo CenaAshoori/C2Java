@@ -465,8 +465,7 @@ void procfile_print(procfile *ff) {
             debug(D_PROCFILE, "     [%zu.%zu] '%s'", l, w, s);
         }
     }
-}
-
+}
 <code block>
 #include "common.h"
 #include "procfile.h"
@@ -949,4 +948,4 @@ void procfile_print(procfile *ff) {
             debug(D_PROCFILE, "     [%zu.%zu] '%s'", l, w, s);
         }
     }
-}
+}

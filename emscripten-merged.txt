@@ -1,7 +1,3 @@
-
-
-
-
 #include <pthread.h>
 #include <emscripten/threading.h>
 #include <emscripten.h>
@@ -248,8 +244,7 @@ uint64_t __atomic_fetch_or_8(void *ptr, uint64_t value, int memmodel)
 uint64_t __atomic_fetch_xor_8(void *ptr, uint64_t value, int memmodel)
 {
   return _emscripten_atomic_fetch_and_xor_u64(ptr, value);
-}
-
+}
 <code block>
 #define _GNU_SOURCE
 #include <pthread.h>
@@ -1060,11 +1055,8 @@ int EMSCRIPTEN_KEEPALIVE proxy_main(int argc, char **argv)
   }
 }
 
-weak_alias(__pthread_testcancel, pthread_testcancel);
-
+weak_alias(__pthread_testcancel, pthread_testcancel);
 <code block>
-
-
 #include "int_lib.h"
 
 
@@ -1106,11 +1098,8 @@ __muldi3(di_int a, di_int b)
     r.all = __muldsi3(x.s.low, y.s.low);
     r.s.high += x.s.high * y.s.low + x.s.low * y.s.high;
     return r.all;
-}
-
+}
 <code block>
-
-
 #include "int_lib.h"
 
 
@@ -1152,19 +1141,8 @@ __muldi3(di_int a, di_int b)
     r.all = __muldsi3(x.s.low, y.s.low);
     r.s.high += x.s.high * y.s.low + x.s.low * y.s.high;
     return r.all;
-}
-
+}
 <code block>
-
-
-
-
-
-
-
-
-
-
 #ifndef _LIBCPP_SUPPORT_WIN32_LIMITS_MSVC_WIN32_H
 #define _LIBCPP_SUPPORT_WIN32_LIMITS_MSVC_WIN32_H
 
@@ -1226,19 +1204,8 @@ __muldi3(di_int a, di_int b)
 #define __builtin_nanl(__dummmy) _LNan._Long_double
 #define __builtin_nansl(__dummy) _LSnan._Long_double
 
-#endif 
-
+#endif
 <code block>
-
-
-
-
-
-
-
-
-
-
 #ifndef _LIBCPP_SUPPORT_WIN32_LIMITS_WIN32_H
 #define _LIBCPP_SUPPORT_WIN32_LIMITS_WIN32_H
 
@@ -1307,8 +1274,7 @@ __muldi3(di_int a, di_int b)
 
 #endif 
 
-#endif 
-
+#endif
 <code block>
 #include <stdio.h>
 #include <SDL/SDL.h>
@@ -1377,9 +1343,7 @@ int main() {
   emscripten_async_prepare_data(buffer, SIZE, "jpg", (void*)33, ready, NULL); 
 
   return 0;
-}
-
-
+}
 <code block>
 #include <stdio.h>
 #include <SDL/SDL.h>
@@ -1444,5 +1408,4 @@ int main() {
   emscripten_async_prepare_data(buffer, SIZE, "jpg", ready, NULL); 
 
   return 0;
-}
-
+}

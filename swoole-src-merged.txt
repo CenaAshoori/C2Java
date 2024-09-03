@@ -1,5 +1,3 @@
-
-
 #include "php_swoole.h"
 
 #ifdef SW_COROUTINE
@@ -1133,11 +1131,8 @@ static PHP_METHOD(swoole_socket_coro, getSocket)
     sw_zval_add_ref(&zsocket);
     sock->resource = zsocket;
 }
-#endif
-
+#endif
 <code block>
-
-
 #include "php_swoole.h"
 
 #ifdef SW_COROUTINE
@@ -2078,11 +2073,8 @@ static PHP_METHOD(swoole_socket_coro, connect)
         }
     }
     RETURN_FALSE;
-}
-
+}
 <code block>
-
-
 #include "php_swoole.h"
 #include "swoole_http.h"
 
@@ -4401,11 +4393,8 @@ static PHP_METHOD(swoole_http_response, gzip)
 
     client->gzip_enable = 1;
     client->gzip_level = level;
-}
-
+}
 <code block>
-
-
 #include "php_swoole.h"
 #include "swoole_http.h"
 
@@ -6724,10 +6713,8 @@ static PHP_METHOD(swoole_http_response, gzip)
 
     client->gzip_enable = 1;
     client->gzip_level = level;
-}
-
+}
 <code block>
-
 #if __APPLE__
 
 #define daemon yes_we_know_that_daemon_is_deprecated_in_os_x_10_5_thankyou
@@ -8511,10 +8498,8 @@ void swServer_set_callback_onClose(swServer *serv, void (*callback)(swServer *, 
 {
     onClose_callback = callback;
     serv->onClose = swServer_scalar_onClose_callback;
-}
-
+}
 <code block>
-
 #if __APPLE__
 
 #define daemon yes_we_know_that_daemon_is_deprecated_in_os_x_10_5_thankyou
@@ -10295,11 +10280,8 @@ void swServer_set_callback_onClose(swServer *serv, void (*callback)(swServer *, 
 {
     onClose_callback = callback;
     serv->onClose = swServer_scalar_onClose_callback;
-}
-
+}
 <code block>
-
-
 #include "php_swoole.h"
 #include "swoole_postgresql_core.h"
 #include "swoole_coroutine.h"
@@ -11027,11 +11009,8 @@ static int swoole_postgresql_coro_close(zval *this)
 
 
     return SUCCESS;
-}
-
+}
 <code block>
-
-
 #include "php_swoole.h"
 #include "swoole_postgresql_core.h"
 #include "swoole_coroutine.h"
@@ -11623,11 +11602,8 @@ static int swoole_postgresql_coro_close(zval *this)
 
 
     return SUCCESS;
-}
-
+}
 <code block>
-
-
 #include "php_swoole.h"
 #include "swoole_mysql.h"
 #include <ext/hash/php_hash.h>
@@ -14665,11 +14641,8 @@ static PHP_METHOD(swoole_mysql, escape)
     }
     SW_RETURN_STRINGL(newstr, newstr_len, 0);
 }
-#endif
-
+#endif
 <code block>
-
-
 #include "php_swoole.h"
 #include "swoole_mysql.h"
 #include <ext/hash/php_hash.h>
@@ -17699,11 +17672,8 @@ static PHP_METHOD(swoole_mysql, escape)
     }
     SW_RETURN_STRINGL(newstr, newstr_len, 0);
 }
-#endif
-
+#endif
 <code block>
-
-
 #include <libpq-fe.h>
 
 typedef enum
@@ -17728,11 +17698,8 @@ typedef struct _php_pgsql_object {
 
 #define PGSQL_ASSOC           1<<0
 #define PGSQL_NUM             1<<1
-#define PGSQL_BOTH            (PGSQL_ASSOC|PGSQL_NUM)
-
+#define PGSQL_BOTH            (PGSQL_ASSOC|PGSQL_NUM)
 <code block>
-
-
 #include <libpq-fe.h>
 
 typedef enum
@@ -17757,4 +17724,4 @@ typedef struct _php_pgsql_object {
 
 #define PGSQL_ASSOC           1<<0
 #define PGSQL_NUM             1<<1
-#define PGSQL_BOTH            (PGSQL_ASSOC|PGSQL_NUM)
+#define PGSQL_BOTH            (PGSQL_ASSOC|PGSQL_NUM)

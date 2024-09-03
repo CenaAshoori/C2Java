@@ -1,4 +1,3 @@
-
 #ifndef IJKMediaPlayer_h264_sps_parser_h
 #define IJKMediaPlayer_h264_sps_parser_h
 
@@ -302,10 +301,8 @@ static bool ff_avpacket_i_or_idr(const AVPacket* pkt,bool isIdr) {
 
 
 
-#endif
-
+#endif
 <code block>
-
 #ifndef IJKMediaPlayer_h264_sps_parser_h
 #define IJKMediaPlayer_h264_sps_parser_h
 
@@ -609,23 +606,12 @@ static bool ff_avpacket_i_or_idr(const AVPacket* pkt,bool isIdr) {
 
 
 
-#endif
-
+#endif
 <code block>
-
-
-#include "loghelp.h"
-
+#include "loghelp.h"
 <code block>
-
-
-#include "loghelp.h"
-
+#include "loghelp.h"
 <code block>
-
-
-
-
 #include "IAndroidIO.h"
 
 typedef struct J4AC_tv_danmaku_ijk_media_player_misc_IAndroidIO {
@@ -747,13 +733,8 @@ int J4A_loadClass__J4AC_tv_danmaku_ijk_media_player_misc_IAndroidIO(JNIEnv *env)
     ret = 0;
 fail:
     return ret;
-}
-
+}
 <code block>
-
-
-
-
 #ifndef J4A__tv_danmaku_ijk_media_player_misc_IAndroidIO__H
 #define J4A__tv_danmaku_ijk_media_player_misc_IAndroidIO__H
 
@@ -782,12 +763,7 @@ int J4A_loadClass__J4AC_tv_danmaku_ijk_media_player_misc_IAndroidIO(JNIEnv *env)
 #define J4A_loadClass__J4AC_IAndroidIO J4A_loadClass__J4AC_tv_danmaku_ijk_media_player_misc_IAndroidIO
 
 #endif
-
 <code block>
-
-
-
-
 #include "IIjkIOHttp.h"
 
 typedef struct J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp {
@@ -909,13 +885,8 @@ int J4A_loadClass__J4AC_tv_danmaku_ijk_media_player_misc_IIjkIOHttp(JNIEnv *env)
     ret = 0;
 fail:
     return ret;
-}
-
+}
 <code block>
-
-
-
-
 #ifndef J4A__tv_danmaku_ijk_media_player_misc_IIjkIOHttp__H
 #define J4A__tv_danmaku_ijk_media_player_misc_IIjkIOHttp__H
 

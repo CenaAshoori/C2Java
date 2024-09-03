@@ -1,7 +1,3 @@
-
-
-
-
 #include <float.h>
 #include <stdio.h>
 #include <string.h>
@@ -793,13 +789,8 @@ AVFilter ff_vf_zscale = {
     .inputs          = avfilter_vf_zscale_inputs,
     .outputs         = avfilter_vf_zscale_outputs,
     .process_command = process_command,
-};
-
+};
 <code block>
-
-
-
-
 #include <float.h>
 #include <stdio.h>
 #include <string.h>
@@ -1595,11 +1586,8 @@ AVFilter ff_vf_zscale = {
     .inputs          = avfilter_vf_zscale_inputs,
     .outputs         = avfilter_vf_zscale_outputs,
     .process_command = process_command,
-};
-
+};
 <code block>
-
-
 #include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
@@ -3266,11 +3254,8 @@ AVInputFormat ff_asf_o_demuxer = {
     .read_timestamp = asf_read_timestamp,
     .read_seek      = asf_read_seek,
     .flags          = AVFMT_NOBINSEARCH | AVFMT_NOGENSEARCH,
-};
-
+};
 <code block>
-
-
 #include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
@@ -4937,11 +4922,8 @@ AVInputFormat ff_asf_o_demuxer = {
     .read_timestamp = asf_read_timestamp,
     .read_seek      = asf_read_seek,
     .flags          = AVFMT_NOBINSEARCH | AVFMT_NOGENSEARCH,
-};
-
+};
 <code block>
-
-
 #include "libavutil/crc.h"
 #include "libavutil/md5.h"
 #include "avcodec.h"
@@ -6192,11 +6174,8 @@ AVCodec flac_encoder = {
     .capabilities = CODEC_CAP_SMALL_LAST_FRAME | CODEC_CAP_DELAY,
     .sample_fmts = (const enum SampleFormat[]){SAMPLE_FMT_S16,SAMPLE_FMT_NONE},
     .long_name = NULL_IF_CONFIG_SMALL("FLAC (Free Lossless Audio Codec)"),
-};
-
+};
 <code block>
-
-
 #include "libavutil/crc.h"
 #include "libavutil/md5.h"
 #include "avcodec.h"
@@ -7454,11 +7433,8 @@ AVCodec flac_encoder = {
     .capabilities = CODEC_CAP_SMALL_LAST_FRAME | CODEC_CAP_DELAY,
     .sample_fmts = (const enum SampleFormat[]){SAMPLE_FMT_S16,SAMPLE_FMT_NONE},
     .long_name = NULL_IF_CONFIG_SMALL("FLAC (Free Lossless Audio Codec)"),
-};
-
+};
 <code block>
-
-
 #include <stdint.h>
 
 #include "config.h"
@@ -7528,10 +7504,8 @@ av_cold void ff_huffyuvdsp_init(HuffYUVDSPContext *c, AVCodecContext *avctx)
 
     if (ARCH_X86)
         ff_huffyuvdsp_init_x86(c, avctx);
-}
-
+}
 <code block>
-
 #include "avcodec.h"
 #include "lossless_videodsp.h"
 #include "libavcodec/mathops.h"
@@ -7624,11 +7598,8 @@ void ff_llviddsp_init(LLVidDSPContext *c)
 
     if (ARCH_X86)
         ff_llviddsp_init_x86(c);
-}
-
+}
 <code block>
-
-
 #include <stdint.h>
 
 #include "config.h"
@@ -7666,10 +7637,8 @@ av_cold void ff_huffyuvdsp_init(HuffYUVDSPContext *c)
 
     if (ARCH_X86)
         ff_huffyuvdsp_init_x86(c);
-}
-
+}
 <code block>
-
 #include "avcodec.h"
 #include "lossless_videodsp.h"
 #include "libavcodec/mathops.h"
@@ -7794,11 +7763,8 @@ void ff_llviddsp_init(LLVidDSPContext *c, AVCodecContext *avctx)
 
     if (ARCH_X86)
         ff_llviddsp_init_x86(c, avctx);
-}
-
+}
 <code block>
-
-
 #include <limits.h>
 
 
@@ -10422,11 +10388,8 @@ AVInputFormat ff_mov_demuxer = {
     .read_packet    = mov_read_packet,
     .read_close     = mov_read_close,
     .read_seek      = mov_read_seek,
-};
-
+};
 <code block>
-
-
 #include <limits.h>
 
 
@@ -13050,11 +13013,8 @@ AVInputFormat ff_mov_demuxer = {
     .read_packet    = mov_read_packet,
     .read_close     = mov_read_close,
     .read_seek      = mov_read_seek,
-};
-
+};
 <code block>
-
-
 #include "config.h"
 #include <ctype.h>
 #include <string.h>
@@ -15797,11 +15757,8 @@ int main(int argc, char **argv)
 
     exit_program(0);
     return 0;
-}
-
+}
 <code block>
-
-
 #include "config.h"
 #include <ctype.h>
 #include <string.h>
@@ -18533,14 +18490,8 @@ int main(int argc, char **argv)
 
     exit_program(0);
     return 0;
-}
-
+}
 <code block>
-
-
-
-
-
 #include "avcodec.h"
 #include "bitstream.h"
 #include "bytestream.h"
@@ -19138,14 +19089,8 @@ AVCodec alac_decoder = {
     NULL,
     alac_decode_close,
     alac_decode_frame,
-};
-
+};
 <code block>
-
-
-
-
-
 #include "avcodec.h"
 #include "bitstream.h"
 #include "bytestream.h"
@@ -19743,11 +19688,8 @@ AVCodec alac_decoder = {
     NULL,
     alac_decode_close,
     alac_decode_frame,
-};
-
+};
 <code block>
-
-
 #include "config.h"
 #include <ctype.h>
 #include <string.h>
@@ -22594,11 +22536,8 @@ int main(int argc, char **argv)
 
     exit_program(0);
     return 0;
-}
-
+}
 <code block>
-
-
 #include "config.h"
 #include <ctype.h>
 #include <string.h>
@@ -25445,11 +25384,8 @@ int main(int argc, char **argv)
 
     exit_program(0);
     return 0;
-}
-
+}
 <code block>
-
-
 #include <stdint.h>
 #include <string.h>
 
@@ -26055,11 +25991,8 @@ AVCodec ff_vp9_mediacodec_decoder = {
     .hw_configs     = mediacodec_hw_configs,
     .wrapper_name   = "mediacodec",
 };
-#endif
-
+#endif
 <code block>
-
-
 #include <stdint.h>
 #include <string.h>
 
@@ -26674,13 +26607,8 @@ AVCodec ff_vp9_mediacodec_decoder = {
     .hw_configs     = mediacodec_hw_configs,
     .wrapper_name   = "mediacodec",
 };
-#endif
-
+#endif
 <code block>
-
-
-
-
 #include "libavutil/avassert.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
@@ -27150,13 +27078,8 @@ AVFilter ff_vf_nlmeans = {
     .outputs       = nlmeans_outputs,
     .priv_class    = &nlmeans_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC | AVFILTER_FLAG_SLICE_THREADS,
-};
-
+};
 <code block>
-
-
-
-
 #include "libavutil/avassert.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
@@ -27624,11 +27547,8 @@ AVFilter ff_vf_nlmeans = {
     .outputs       = nlmeans_outputs,
     .priv_class    = &nlmeans_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC | AVFILTER_FLAG_SLICE_THREADS,
-};
-
+};
 <code block>
-
-
 #include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
@@ -35130,11 +35050,8 @@ AVInputFormat ff_mov_demuxer = {
     .read_close     = mov_read_close,
     .read_seek      = mov_read_seek,
     .flags          = AVFMT_NO_BYTE_SEEK,
-};
-
+};
 <code block>
-
-
 #include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
@@ -42409,4 +42326,4 @@ AVInputFormat ff_mov_demuxer = {
     .read_close     = mov_read_close,
     .read_seek      = mov_read_seek,
     .flags          = AVFMT_NO_BYTE_SEEK,
-};
+};

@@ -1,6 +1,3 @@
-
-
-
 #include "vim.h"
 
 #if defined(FEAT_DIRECTX)
@@ -8157,12 +8154,8 @@ netbeans_draw_multisign_indicator(int row)
     SetPixel(s_hdc, x+3, y++, gui.currFgColor);
     SetPixel(s_hdc, x+2, y, gui.currFgColor);
 }
-#endif
-
+#endif
 <code block>
-
-
-
 #include "vim.h"
 
 #if defined(FEAT_DIRECTX)
@@ -16319,4 +16312,4 @@ netbeans_draw_multisign_indicator(int row)
     SetPixel(s_hdc, x+3, y++, gui.currFgColor);
     SetPixel(s_hdc, x+2, y, gui.currFgColor);
 }
-#endif
+#endif

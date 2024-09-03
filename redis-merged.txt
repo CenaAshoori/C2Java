@@ -2824,8 +2824,7 @@ stats_arenas_i_index(tsdn_t *tsdn, const size_t *mib, size_t miblen, size_t i) {
 label_return:
 	malloc_mutex_unlock(tsdn, &ctl_mtx);
 	return ret;
-}
-
+}
 <code block>
 #define JEMALLOC_EXTENT_C_
 #include "jemalloc/internal/jemalloc_preamble.h"
@@ -4829,8 +4828,7 @@ extent_boot(void) {
 	}
 
 	return false;
-}
-
+}
 <code block>
 #define JEMALLOC_MALLOC_IO_C_
 #include "jemalloc/internal/jemalloc_preamble.h"
@@ -5484,8 +5482,7 @@ malloc_printf(const char *format, ...) {
 #undef not_reached
 #undef not_implemented
 #undef assert_not_implemented
-#include "jemalloc/internal/assert.h"
-
+#include "jemalloc/internal/assert.h"
 <code block>
 #define	JEMALLOC_CHUNK_C_
 #include "jemalloc/internal/jemalloc_internal.h"
@@ -6194,8 +6191,7 @@ chunk_postfork_child(void)
 {
 
 	chunk_dss_postfork_child();
-}
-
+}
 <code block>
 #define	JEMALLOC_CTL_C_
 #include "jemalloc/internal/jemalloc_internal.h"
@@ -8294,8 +8290,7 @@ stats_arenas_i_index(const size_t *mib, size_t miblen, size_t i)
 label_return:
 	malloc_mutex_unlock(&ctl_mtx);
 	return (ret);
-}
-
+}
 <code block>
 #define	JEMALLOC_EXTENT_C_
 #include "jemalloc/internal/jemalloc_internal.h"
@@ -8343,8 +8338,7 @@ extent_ad_comp(extent_node_t *a, extent_node_t *b)
 }
 
 
-rb_gen(, extent_tree_ad_, extent_tree_t, extent_node_t, ad_link, extent_ad_comp)
-
+rb_gen(, extent_tree_ad_, extent_tree_t, extent_node_t, ad_link, extent_ad_comp)
 <code block>
 #define	assert(e) do {							\
 	if (config_debug && !(e)) {					\
@@ -8974,11 +8968,8 @@ malloc_printf(const char *format, ...)
 	va_start(ap, format);
 	malloc_vcprintf(NULL, NULL, format, ap);
 	va_end(ap);
-}
-
+}
 <code block>
-
-
 #include "server.h"
 #include "endianconv.h"
 #include "stream.h"
@@ -10347,15 +10338,8 @@ void xclaimCommand(client *c) {
         }
     }
     setDeferredMultiBulkLength(c,arraylenptr,arraylen);
-}
-
-
-
-
-
+}
 <code block>
-
-
 #include "server.h"
 #include "endianconv.h"
 #include "stream.h"
@@ -11724,15 +11708,8 @@ void xclaimCommand(client *c) {
         }
     }
     setDeferredMultiBulkLength(c,arraylenptr,arraylen);
-}
-
-
-
-
-
+}
 <code block>
-
-
 #include "fmacros.h"
 #include "version.h"
 
@@ -18017,11 +17994,8 @@ int main(int argc, char **argv) {
     } else {
         return noninteractive(argc,convertToSds(argc,argv));
     }
-}
-
+}
 <code block>
-
-
 #include "fmacros.h"
 #include "version.h"
 
@@ -24312,11 +24286,8 @@ int main(int argc, char **argv) {
     } else {
         return noninteractive(argc,convertToSds(argc,argv));
     }
-}
-
+}
 <code block>
-
-
 #include "server.h"
 #include "atomicvar.h"
 #include <sys/uio.h>
@@ -26060,11 +26031,8 @@ int processEventsWhileBlocked(void) {
         count += events;
     }
     return count;
-}
-
+}
 <code block>
-
-
 #include "server.h"
 #include "atomicvar.h"
 #include <sys/uio.h>
@@ -27807,11 +27775,8 @@ int processEventsWhileBlocked(void) {
         count += events;
     }
     return count;
-}
-
+}
 <code block>
-
-
 #include "server.h"
 #include "cluster.h"
 #include <dlfcn.h>
@@ -30615,11 +30580,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddStringBuffer);
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
-}
-
+}
 <code block>
-
-
 #include "server.h"
 #include "cluster.h"
 #include <dlfcn.h>
@@ -33416,11 +33378,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DigestAddStringBuffer);
     REGISTER_API(DigestAddLongLong);
     REGISTER_API(DigestEndSequence);
-}
-
+}
 <code block>
-
-
 #ifndef GEOHASH_H_
 #define GEOHASH_H_
 
@@ -33504,11 +33463,8 @@ void geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors);
 #if defined(__cplusplus)
 }
 #endif
-#endif 
-
+#endif
 <code block>
-
-
 #ifndef GEOHASH_H_
 #define GEOHASH_H_
 
@@ -33592,4 +33548,4 @@ void geohashNeighbors(const GeoHashBits *hash, GeoHashNeighbors *neighbors);
 #if defined(__cplusplus)
 }
 #endif
-#endif 
+#endif

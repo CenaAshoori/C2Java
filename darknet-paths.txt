@@ -11,7 +11,9 @@ C2Java/darknet/2313a8eb/C/prev/src/darknet.c
 C2Java/darknet/2313a8eb/C/prev/src/utils.c
 C2Java/darknet/516f019b/C/curr/src/network.c
 C2Java/darknet/516f019b/C/curr/src/old.c
+C2Java/darknet/516f019b/C/curr/src/parser.c
 C2Java/darknet/516f019b/C/prev/src/network.c
+C2Java/darknet/516f019b/C/prev/src/old.c
 C2Java/darknet/516f019b/C/prev/src/parser.c
 C2Java/darknet/60e952ba/C/curr/src/softmax_layer.c
 C2Java/darknet/60e952ba/C/prev/src/softmax_layer.c

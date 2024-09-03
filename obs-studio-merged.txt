@@ -1,5 +1,3 @@
-
-
 #include <util/base.h>
 #include <util/circlebuf.h>
 #include <util/darray.h>
@@ -281,11 +279,8 @@ struct obs_encoder_info aac_encoder_info = {
 	.get_properties = aac_properties,
 	.get_extra_data = aac_extra_data,
 	.get_audio_info = aac_audio_info
-};
-
+};
 <code block>
-
-
 #include <util/base.h>
 #include <util/circlebuf.h>
 #include <util/darray.h>
@@ -567,11 +562,8 @@ struct obs_encoder_info aac_encoder_info = {
 	.get_properties = aac_properties,
 	.get_extra_data = aac_extra_data,
 	.get_audio_info = aac_audio_info
-};
-
+};
 <code block>
-
-
 #include <inttypes.h>
 
 #include "media-io/format-conversion.h"
@@ -2481,11 +2473,8 @@ void obs_source_load(obs_source_t source)
 {
 	if (!source_valid(source) || !source->info.load) return;
 	source->info.load(source->context.data, source->context.settings);
-}
-
+}
 <code block>
-
-
 #include <inttypes.h>
 
 #include "media-io/format-conversion.h"
@@ -4395,11 +4384,8 @@ void obs_source_load(obs_source_t source)
 {
 	if (!source_valid(source) || !source->info.load) return;
 	source->info.load(source->context.data, source->context.settings);
-}
-
+}
 <code block>
-
-
 #include "util/bmem.h"
 #include "util/darray.h"
 #include "obs-internal.h"
@@ -5496,11 +5482,8 @@ struct media_frames_per_second obs_property_frame_rate_fps_range_max(
 enum obs_text_type obs_proprety_text_type(obs_property_t *p)
 {
 	return obs_property_text_type(p);
-}
-
+}
 <code block>
-
-
 #include "util/bmem.h"
 #include "util/darray.h"
 #include "obs-internal.h"
@@ -6592,11 +6575,8 @@ struct media_frames_per_second obs_property_frame_rate_fps_range_max(
 	return data && data->ranges.num > idx ?
 		data->ranges.array[idx].max_time :
 		(struct media_frames_per_second){0};
-}
-
+}
 <code block>
-
-
 #include <assert.h>
 
 #include <graphics/vec2.h>
@@ -7301,11 +7281,8 @@ void gs_shader_set_val(gs_sparam_t *param, const void *val, size_t size)
 void gs_shader_set_default(gs_sparam_t *param)
 {
 	gs_shader_set_val(param, param->def_value.array, param->def_value.num);
-}
-
+}
 <code block>
-
-
 #include <assert.h>
 
 #include <graphics/vec2.h>
@@ -8010,11 +7987,8 @@ void gs_shader_set_val(gs_sparam_t *param, const void *val, size_t size)
 void gs_shader_set_default(gs_sparam_t *param)
 {
 	gs_shader_set_val(param, param->def_value.array, param->def_value.num);
-}
-
+}
 <code block>
-
-
 #pragma once
 
 #include "util/c99defs.h"
@@ -9023,12 +8997,8 @@ extern void obs_service_deactivate(struct obs_service *service, bool remove);
 extern bool obs_service_initialize(struct obs_service *service,
 		struct obs_output *output);
 
-void obs_service_destroy(obs_service_t *service);
-
-
+void obs_service_destroy(obs_service_t *service);
 <code block>
-
-
 #pragma once
 
 #include "util/c99defs.h"
@@ -10517,11 +10487,8 @@ static inline void obs_source_frame_destroy(struct obs_source_frame *frame)
 
 #ifdef __cplusplus
 }
-#endif
-
+#endif
 <code block>
-
-
 #pragma once
 
 #include "util/c99defs.h"
@@ -11533,12 +11500,8 @@ extern void obs_service_deactivate(struct obs_service *service, bool remove);
 extern bool obs_service_initialize(struct obs_service *service,
 		struct obs_output *output);
 
-void obs_service_destroy(obs_service_t *service);
-
-
+void obs_service_destroy(obs_service_t *service);
 <code block>
-
-
 #pragma once
 
 #include "util/c99defs.h"
@@ -13021,4 +12984,4 @@ static inline void obs_source_frame_destroy(struct obs_source_frame *frame)
 
 #ifdef __cplusplus
 }
-#endif
+#endif

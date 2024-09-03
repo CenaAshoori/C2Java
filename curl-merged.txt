@@ -73,8 +73,7 @@ static const char * const telnetcmds[]=
 
 #endif 
 
-#endif 
-
+#endif
 <code block>
 #ifndef HEADER_CURL_ARPA_TELNET_H
 #define HEADER_CURL_ARPA_TELNET_H
@@ -151,11 +150,8 @@ static const char * const telnetcmds[]=
 
 #endif 
 
-#endif 
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #include <curl/curl.h>
@@ -470,11 +466,8 @@ void print_pipeline(struct connectdata *conn)
   }
 }
 
-#endif
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #ifdef HAVE_NETINET_IN_H
@@ -5559,11 +5552,8 @@ CURLcode Curl_do_more(struct connectdata *conn, int *complete)
     do_complete(conn);
 
   return result;
-}
-
+}
 <code block>
-
-
 #include "curl_setup.h"
 
 #include <curl/curl.h>
@@ -5869,11 +5859,8 @@ void print_pipeline(struct connectdata *conn)
   }
 }
 
-#endif
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #ifdef HAVE_NETINET_IN_H
@@ -10966,13 +10953,8 @@ CURLcode Curl_do_more(struct connectdata *conn, int *complete)
     do_complete(conn);
 
   return result;
-}
-
+}
 <code block>
-
-
-
-
 #include "curl_setup.h"
 
 #ifdef USE_AXTLS
@@ -11537,13 +11519,8 @@ size_t Curl_axtls_version(char *buffer, size_t size)
   return snprintf(buffer, size, "axTLS/%s", ssl_version());
 }
 
-#endif 
-
+#endif
 <code block>
-
-
-
-
 #include "curl_setup.h"
 
 #ifdef USE_AXTLS
@@ -12108,11 +12085,8 @@ size_t Curl_axtls_version(char *buffer, size_t size)
   return snprintf(buffer, size, "axTLS/%s", ssl_version());
 }
 
-#endif 
-
+#endif
 <code block>
-
-
 #include "setup.h"
 
 #ifdef HAVE_SYS_SOCKET_H
@@ -14695,11 +14669,8 @@ void Curl_multi_dump(const struct Curl_multi *multi_handle)
     }
   }
 }
-#endif
-
+#endif
 <code block>
-
-
 #include "setup.h"
 
 #ifdef HAVE_SYS_SOCKET_H
@@ -17279,11 +17250,8 @@ void Curl_multi_dump(const struct Curl_multi *multi_handle)
     }
   }
 }
-#endif
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 #include <curl/curl.h>
 #include "curl_range.h"
@@ -17348,11 +17316,8 @@ CURLcode Curl_range(struct connectdata *conn)
   return CURLE_OK;
 }
 
-#endif
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #ifndef CURL_DISABLE_FILE
@@ -17829,11 +17794,8 @@ static CURLcode file_do(struct connectdata *conn, bool *done)
   return result;
 }
 
-#endif
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #ifndef CURL_DISABLE_FTP
@@ -21773,11 +21735,8 @@ static CURLcode ftp_setup_connection(struct connectdata *conn)
   return CURLE_OK;
 }
 
-#endif 
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #ifndef CURL_DISABLE_FILE
@@ -22308,11 +22267,8 @@ static CURLcode file_do(struct connectdata *conn, bool *done)
   return result;
 }
 
-#endif
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #ifndef CURL_DISABLE_FTP
@@ -26298,11 +26254,8 @@ static CURLcode ftp_setup_connection(struct connectdata *conn)
   return CURLE_OK;
 }
 
-#endif 
-
+#endif
 <code block>
-
-
 #include "setup.h"
 
 #include <string.h>
@@ -26539,11 +26492,8 @@ Curl_addrinfo *Curl_getaddrinfo(struct connectdata *conn,
   }
   return NULL; 
 }
-#endif 
-
+#endif
 <code block>
-
-
 #include "setup.h"
 
 #include <string.h>
@@ -27020,8 +26970,6 @@ Curl_addrinfo *Curl_ip2addr(in_addr_t num, const char *hostname, int port)
 }
 #endif
 <code block>
-
-
 #include "setup.h"
 
 #include <string.h>
@@ -27309,11 +27257,8 @@ Curl_addrinfo *Curl_ip2addr(in_addr_t num, const char *hostname, int port)
   return ai;
 }
 #endif 
-#endif 
-
+#endif
 <code block>
-
-
 #include "setup.h"
 
 #include <string.h>
@@ -27736,11 +27681,8 @@ Curl_addrinfo *Curl_addrinfo_copy(const void *org, int port)
 
   return Curl_he2ai(orig, port);
 }
-#endif 
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #include "endian.h"
@@ -27777,11 +27719,8 @@ void Curl_write64_le(const __int64 value, unsigned char *buffer)
   Curl_write32_le((int)value, buffer);
   Curl_write32_le((int)(value >> 32), buffer + 4);
 }
-#endif
-
+#endif
 <code block>
-
-
 #include "curl_setup.h"
 
 #include "endian.h"
@@ -27818,8 +27757,7 @@ void write64_le(const __int64 value, unsigned char *buffer)
   write32_le((int)value, buffer);
   write32_le((int)(value >> 32), buffer + 4);
 }
-#endif
-
+#endif
 <code block>
 #ifndef HEADER_CURL_AMIGAOS_H
 #define HEADER_CURL_AMIGAOS_H
@@ -27838,9 +27776,7 @@ void Curl_amiga_cleanup();
 
 #endif
 
-#endif 
-
-
+#endif
 <code block>
 #ifndef HEADER_CURL_AMIGAOS_H
 #define HEADER_CURL_AMIGAOS_H
@@ -27859,5 +27795,4 @@ void Curl_amiga_cleanup();
 
 #endif
 
-#endif 
-
+#endif

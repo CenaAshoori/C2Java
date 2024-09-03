@@ -1,7 +1,3 @@
-
-
-
-
 #include "phar_internal.h"
 #include "func_interceptors.h"
 
@@ -5212,16 +5208,8 @@ void phar_object_init(void)
 	REGISTER_PHAR_CLASS_CONST_LONG(phar_ce_archive, "SHA1", PHAR_SIG_SHA1)
 	REGISTER_PHAR_CLASS_CONST_LONG(phar_ce_archive, "SHA256", PHAR_SIG_SHA256)
 	REGISTER_PHAR_CLASS_CONST_LONG(phar_ce_archive, "SHA512", PHAR_SIG_SHA512)
-}
-
-
-
-
+}
 <code block>
-
-
-
-
 #include "phar_internal.h"
 #include "func_interceptors.h"
 
@@ -10508,16 +10496,8 @@ void phar_object_init(void)
 	REGISTER_PHAR_CLASS_CONST_LONG(phar_ce_archive, "SHA1", PHAR_SIG_SHA1)
 	REGISTER_PHAR_CLASS_CONST_LONG(phar_ce_archive, "SHA256", PHAR_SIG_SHA256)
 	REGISTER_PHAR_CLASS_CONST_LONG(phar_ce_archive, "SHA512", PHAR_SIG_SHA512)
-}
-
-
-
-
+}
 <code block>
-
-
-
-
 #include "zend.h"
 #include "zend_sort.h"
 #include "zend_API.h"
@@ -11234,16 +11214,8 @@ ZEND_API ZEND_INI_MH(OnUpdateStringUnempty)
 
 	*p = new_value ? ZSTR_VAL(new_value) : NULL;
 	return SUCCESS;
-}
-
-
-
-
+}
 <code block>
-
-
-
-
 #include "zend.h"
 #include "zend_sort.h"
 #include "zend_API.h"
@@ -11968,21 +11940,8 @@ ZEND_API ZEND_INI_MH(OnUpdateStringUnempty)
 
 	*p = new_value ? ZSTR_VAL(new_value) : NULL;
 	return SUCCESS;
-}
-
-
-
-
+}
 <code block>
-
-
-
-
-
-
-
-
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -16978,20 +16937,8 @@ static void php_mb_gpc_set_input_encoding(const zend_encoding *encoding)
 }
 
 
-#endif	
-
-
-
+#endif
 <code block>
-
-
-
-
-
-
-
-
-
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -21978,15 +21925,8 @@ static void php_mb_gpc_set_input_encoding(const zend_encoding *encoding)
 }
 
 
-#endif	
-
-
-
+#endif
 <code block>
-
-
-
-
 #ifndef VIRTUAL_CWD_H
 #define VIRTUAL_CWD_H
 
@@ -22296,13 +22236,8 @@ CWD_API realpath_cache_bucket** realpath_cache_get_buckets(TSRMLS_D);
 
 #endif
 
-#endif 
-
+#endif
 <code block>
-
-
-
-
 #ifndef VIRTUAL_CWD_H
 #define VIRTUAL_CWD_H
 
@@ -22612,8 +22547,7 @@ CWD_API realpath_cache_bucket** realpath_cache_get_buckets(TSRMLS_D);
 
 #endif
 
-#endif 
-
+#endif
 <code block>
 #ifndef ONIGURUMA_H
 #define ONIGURUMA_H
@@ -23587,8 +23521,7 @@ int onig_setup_builtin_monitors_by_ascii_encoded_name P_((void* fp));
 }
 #endif
 
-#endif 
-
+#endif
 <code block>
 #ifndef REGENC_H
 #define REGENC_H
@@ -23820,8 +23753,7 @@ extern const unsigned short OnigEncAsciiCtypeTable[];
 
 #define ONIGENC_IS_ASCII_COMPATIBLE_ENCODING(enc)  ((enc)->min_enc_len == 1)
 
-#endif 
-
+#endif
 <code block>
 #ifndef ONIGURUMA_H
 #define ONIGURUMA_H
@@ -24665,8 +24597,7 @@ const char* onig_copyright P_((void));
 }
 #endif
 
-#endif 
-
+#endif
 <code block>
 #ifndef REGENC_H
 #define REGENC_H
@@ -24893,4 +24824,4 @@ ONIG_EXTERN const unsigned short OnigEncAsciiCtypeTable[];
 #define ONIGENC_IS_UNICODE_ENCODING(enc) \
   ((enc)->is_code_ctype == onigenc_unicode_is_code_ctype)
 
-#endif 
+#endif

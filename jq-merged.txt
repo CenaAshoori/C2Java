@@ -1681,8 +1681,7 @@ int builtins_bind(jq_state *jq, block* bb) {
   *bb = bind_bytecoded_builtins(*bb);
   *bb = gen_cbinding(function_list, sizeof(function_list)/sizeof(function_list[0]), *bb);
   return nerrors;
-}
-
+}
 <code block>
 #ifndef COMPILE_H
 #define COMPILE_H
@@ -1785,8 +1784,7 @@ void block_free(block);
   BLOCK_IDX(__VA_ARGS__, BLOCK_8, BLOCK_7, BLOCK_6, BLOCK_5, BLOCK_4, BLOCK_3, BLOCK_2, BLOCK_1)(__VA_ARGS__)
 
 
-#endif
-
+#endif
 <code block>
 #include <stdint.h>
 #include <stddef.h>
@@ -3083,8 +3081,7 @@ int jv_contains(jv a, jv b) {
   jv_free(a);
   jv_free(b);
   return r;
-}
-
+}
 <code block>
 #include <stdlib.h>
 #include <stdio.h>
@@ -3264,20 +3261,8 @@ __attribute__((constructor)) void jv_mem_uninit_setup(){
   free(p);
 #endif
 }
-#endif
-
+#endif
 <code block>
-
-
-
-
-
-
-
-
-
-
-
 #define NO_ERRNO
 #define NO_HEX_FP
 #define No_Hex_NaN
@@ -7215,8 +7200,7 @@ jvp_dtoa
         goto done;
  done:
 	return b0;
-	}
-
+	}
 <code block>
 #define UTF8_CONTINUATION_BYTE ((unsigned char)255)
 static const unsigned char utf8_coding_length[] =
@@ -7254,8 +7238,7 @@ static const unsigned char utf8_coding_bits[] =
   0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f,
   0x07, 0x07, 0x07, 0x07, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 static const int utf8_first_codepoint[] =
- {0x00, 0x00, 0x80, 0x800, 0x10000};
-
+ {0x00, 0x00, 0x80, 0x800, 0x10000};
 <code block>
 #ifndef LOCFILE_H
 #define LOCFILE_H
@@ -7285,8 +7268,7 @@ int locfile_get_line(struct locfile *, int);
 void locfile_free(struct locfile *);
 void locfile_locate(struct locfile *, location, const char *, ...);
 
-#endif
-
+#endif
 <code block>
 #define _BSD_SOURCE
 #define _GNU_SOURCE
@@ -8971,8 +8953,7 @@ int builtins_bind(jq_state *jq, block* bb) {
   *bb = bind_bytecoded_builtins(*bb);
   *bb = gen_cbinding(function_list, sizeof(function_list)/sizeof(function_list[0]), *bb);
   return nerrors;
-}
-
+}
 <code block>
 #ifndef COMPILE_H
 #define COMPILE_H
@@ -9075,8 +9056,7 @@ void block_free(block);
   BLOCK_IDX(__VA_ARGS__, BLOCK_8, BLOCK_7, BLOCK_6, BLOCK_5, BLOCK_4, BLOCK_3, BLOCK_2, BLOCK_1)(__VA_ARGS__)
 
 
-#endif
-
+#endif
 <code block>
 #include <stdint.h>
 #include <stddef.h>
@@ -10373,8 +10353,7 @@ int jv_contains(jv a, jv b) {
   jv_free(a);
   jv_free(b);
   return r;
-}
-
+}
 <code block>
 #include <stdlib.h>
 #include <stdio.h>
@@ -10554,20 +10533,8 @@ __attribute__((constructor)) void jv_mem_uninit_setup(){
   free(p);
 #endif
 }
-#endif
-
+#endif
 <code block>
-
-
-
-
-
-
-
-
-
-
-
 #define NO_ERRNO
 #define NO_HEX_FP
 #define No_Hex_NaN
@@ -14505,8 +14472,7 @@ jvp_dtoa
         goto done;
  done:
 	return b0;
-	}
-
+	}
 <code block>
 #define UTF8_CONTINUATION_BYTE ((unsigned char)255)
 static const unsigned char utf8_coding_length[] =
@@ -14544,8 +14510,7 @@ static const unsigned char utf8_coding_bits[] =
   0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f,
   0x07, 0x07, 0x07, 0x07, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 static const int utf8_first_codepoint[] =
- {0x00, 0x00, 0x80, 0x800, 0x10000};
-
+ {0x00, 0x00, 0x80, 0x800, 0x10000};
 <code block>
 #ifndef LOCFILE_H
 #define LOCFILE_H
@@ -14575,8 +14540,7 @@ int locfile_get_line(struct locfile *, int);
 void locfile_free(struct locfile *);
 void locfile_locate(struct locfile *, location, const char *, ...);
 
-#endif
-
+#endif
 <code block>
 #include <assert.h>
 #include <ctype.h>
@@ -15106,10 +15070,8 @@ out:
   if (ret >= 10)
     return 0;
   return ret;
-}
-
+}
 <code block>
-
 #ifdef HAVE_MEMMEM
 #define _GNU_SOURCE
 #endif
@@ -15419,8 +15381,7 @@ jv jq_util_input_next_input(jq_util_input_state state) {
     state->slurped = jv_invalid();
   }
   return value;
-}
-
+}
 <code block>
 #include <assert.h>
 #include <ctype.h>
@@ -16086,10 +16047,8 @@ out:
   if (ret >= 10)
     return 0;
   return ret;
-}
-
+}
 <code block>
-
 #ifdef HAVE_MEMMEM
 #define _GNU_SOURCE
 #endif
@@ -16232,9 +16191,7 @@ not_this:
   }
   return NULL;
 #endif 
-}
-
-
+}
 <code block>
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE 
@@ -17580,8 +17537,7 @@ void block_free(block b) {
     next = curr->next;
     inst_free(curr);
   }
-}
-
+}
 <code block>
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE 
@@ -18803,8 +18759,7 @@ void block_free(block b) {
     next = curr->next;
     inst_free(curr);
   }
-}
-
+}
 <code block>
 #ifdef HAVE_ACOS
 LIBM_DD(acos)
@@ -18970,8 +18925,7 @@ LIBM_DDI(scalbn)
 #ifdef HAVE_LGAMMA_R
 LIBM_DDIP(lgamma_r)
 #endif
-#endif
-
+#endif
 <code block>
 LIBM_DD(acos)
 LIBM_DD(acosh)
@@ -18997,17 +18951,7 @@ LIBM_DD(tan)
 LIBM_DD(tanh)
 LIBM_DD(tgamma)
 LIBM_DD(y0)
-LIBM_DD(y1)
-
-
-
-
-
-
-
-
-
-
+LIBM_DD(y1)
 <code block>
 #include <assert.h>
 #include <errno.h>
@@ -19352,8 +19296,7 @@ int load_program(jq_state *jq, struct locfile* src, block *out_block) {
     *out_block = block_drop_unreferenced(block_join(libs, program));
 
   return nerrors;
-}
-
+}
 <code block>
 #include <assert.h>
 #include <errno.h>
@@ -19648,4 +19591,4 @@ int load_program(jq_state *jq, struct locfile* src, block *out_block) {
     *out_block = block_drop_unreferenced(block_join(libs, program));
 
   return nerrors;
-}
+}
